@@ -2,34 +2,49 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PennyS</title>
+<title>PennyS Scanner</title>
 <style>
-body{background:#0f172a;color:#e5e7eb;font-family:sans-serif}
-table{width:100%;border-collapse:collapse}
-th,td{padding:8px;border-bottom:1px solid #334155}
+body{background:#0f172a;color:#e5e7eb;font-family:sans-serif;padding:10px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{padding:8px;border-bottom:1px solid #334155;text-align:left}
 .badgeA{color:#22c55e;font-weight:bold}
 .badgeW{color:#facc15;font-weight:bold}
+input,button{margin:4px;padding:6px}
 </style>
 </head>
 <body>
 
 <h2>PennyS Scanner</h2>
+
+<button onclick="unlockAudio()">🔔 Enable Sound Alerts</button>
 <label>
   <input type="checkbox" id="pm"> Premarket
 </label>
 
 <table>
 <thead>
-<tr><th>Sym</th><th>Price</th><th>Score</th><th>Vol</th><th>Type</th></tr>
+<tr>
+  <th>Sym</th>
+  <th>Price</th>
+  <th>Score</th>
+  <th>Vol</th>
+  <th>Type</th>
+</tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 
+<h3>Set Alert</h3>
+<input id="asym" placeholder="Symbol">
+<input id="abreak" placeholder="Breakout">
+<input id="ainv" placeholder="Invalidation">
+<button onclick="addAlert(asym.value,abreak.value,ainv.value)">Save Alert</button>
+
 <script src="app.js"></script>
 <script>
 pm.checked = localStorage.getItem('premarket') === 'on';
-pm.onchange = () => {
-  localStorage.setItem('premarket', pm.checked ? 'on' : 'off');
+pm.onchange = ()=>{
+  localStorage.setItem('premarket', pm.checked?'on':'off');
   location.reload();
 };
 
@@ -79,10 +94,12 @@ async function load(){
       </td>
     </tr>
   `).join('') || '<tr><td colspan=5>No movers</td></tr>';
+
+  checkAlerts(stocks);
 }
 
 load();
-setInterval(load, 15000);
+setInterval(load,15000);
 </script>
 </body>
 </html>
