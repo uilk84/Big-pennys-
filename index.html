@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PennyS</title>
+<style>
+body{background:#0f172a;color:#e5e7eb;font-family:sans-serif}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #334155}
+.badgeA{color:#22c55e;font-weight:bold}
+.badgeW{color:#facc15;font-weight:bold}
+</style>
+</head>
+<body>
+
+<h2>PennyS Scanner</h2>
+<label>
+  <input type="checkbox" id="pm"> Premarket
+</label>
+
+<table>
+<thead>
+<tr><th>Sym</th><th>Price</th><th>Score</th><th>Vol</th><th>Type</th></tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
+<script src="app.js"></script>
+<script>
+pm.checked = localStorage.getItem('premarket') === 'on';
+pm.onchange = () => {
+  localStorage.setItem('premarket', pm.checked ? 'on' : 'off');
+  location.reload();
+};
+
+async function load(){
+  if(!inTradeWindow()){
+    rows.innerHTML='<tr><td colspan=5>Outside trade window</td></tr>';
+    return;
+  }
+
+  const r = await fetch(
+    `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`
+  );
+  const d = await r.json();
+
+  const stocks = d.tickers
+    .filter(x =>
+      x.lastTrade?.p>=0.3 &&
+      x.lastTrade.p<=5 &&
+      (x.todaysChangePerc||0)>=2
+    )
+    .map(x=>{
+      const v = x.day?.v || x.min?.c || 0;
+      const pv = x.prevDay?.v || 1;
+      const o = {
+        sym:x.ticker,
+        p:x.lastTrade.p,
+        c:x.todaysChangePerc||0,
+        v:v,
+        hod:x.day?.h||x.lastTrade.p,
+        vs:v/pv
+      };
+      o.score = score(o);
+      return o;
+    })
+    .filter(x=>x.v>=250000 && x.vs>=1.2 && x.score>=55)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,20);
+
+  rows.innerHTML = stocks.map(x=>`
+    <tr>
+      <td>${x.sym}</td>
+      <td>$${x.p.toFixed(2)}</td>
+      <td>${x.score}</td>
+      <td>${fmt(x.v)}</td>
+      <td class="${x.score>=70?'badgeA':'badgeW'}">
+        ${x.score>=70?'A+':'WATCH'}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan=5>No movers</td></tr>';
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>
