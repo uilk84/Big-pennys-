@@ -6,47 +6,48 @@
 <title>PennyS Scanner</title>
 
 <style>
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: radial-gradient(circle at top,#0e1a33,#05080f);
-  color: #fff;
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:radial-gradient(circle at top,#0e1a33,#05080f);
+  color:#fff;
 }
-header {
-  padding: 20px;
-  font-size: 28px;
-  font-weight: 700;
+header{
+  padding:20px;
+  font-size:28px;
+  font-weight:700;
 }
-.controls {
-  display: flex;
-  gap: 14px;
-  padding: 0 20px 10px;
-  flex-wrap: wrap;
-  align-items: center;
+.controls{
+  display:flex;
+  gap:14px;
+  padding:0 20px 10px;
+  flex-wrap:wrap;
+  align-items:center;
 }
-button {
-  background: #1c263b;
-  color: #fff;
-  border: none;
-  border-radius: 14px;
-  padding: 12px 16px;
+button{
+  background:#1c263b;
+  color:#fff;
+  border:none;
+  border-radius:14px;
+  padding:12px 16px;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
+label{opacity:.9}
+table{
+  width:100%;
+  border-collapse:collapse;
 }
-th, td {
-  padding: 12px;
-  border-bottom: 1px solid #1c263b;
+th,td{
+  padding:12px;
+  border-bottom:1px solid #1c263b;
 }
-th { opacity: .7; text-align:left; }
-.alert-box { padding: 20px; }
-input {
-  width: 100%;
-  padding: 12px;
-  border-radius: 12px;
-  border: none;
-  margin-bottom: 10px;
+th{opacity:.7;text-align:left}
+.alert-box{padding:20px}
+input{
+  width:100%;
+  padding:12px;
+  border-radius:12px;
+  border:none;
+  margin-bottom:10px;
 }
 </style>
 </head>
@@ -59,7 +60,7 @@ input {
   <button onclick="enableSound()">🔔 Enable Sound Alerts</button>
 
   <label>
-    <input type="checkbox" id="premarket" onchange="loadData()">
+    <input type="checkbox" id="premarket" checked onchange="loadData()">
     Premarket
   </label>
 
@@ -97,71 +98,66 @@ input {
 </audio>
 
 <script>
-const API_KEY = "YOUR_POLYGON_KEY";
-const rows = document.getElementById("rows");
-let soundEnabled = false;
+const rows=document.getElementById("rows");
+let soundEnabled=false;
 
 function enableSound(){
-  soundEnabled = true;
+  soundEnabled=true;
   document.getElementById("beep").play();
   navigator.vibrate?.([150,80,150]);
 }
 
-/* 🔥 FORCE US/EASTERN TIME 🔥 */
+/* FORCE US/EASTERN TIME */
 function easternMinutes(){
-  const now = new Date();
-  const est = new Date(
-    now.toLocaleString("en-US", { timeZone: "America/New_York" })
+  const now=new Date();
+  const est=new Date(
+    now.toLocaleString("en-US",{timeZone:"America/New_York"})
   );
-  return est.getHours()*60 + est.getMinutes();
+  return est.getHours()*60+est.getMinutes();
 }
 
-function inMarket(){ return easternMinutes() >= 570 && easternMinutes() <= 960; }
-function inPremarket(){ return easternMinutes() >= 240 && easternMinutes() < 570; }
-function inPost(){ return easternMinutes() > 960 && easternMinutes() <= 1200; }
+function inMarket(){return easternMinutes()>=570&&easternMinutes()<=960;}
+function inPremarket(){return easternMinutes()>=240&&easternMinutes()<570;}
+function inPost(){return easternMinutes()>960&&easternMinutes()<=1200;}
 
 async function loadData(){
-  const pm = document.getElementById("premarket").checked;
-  const post = document.getElementById("postmarket").checked;
+  const pm=document.getElementById("premarket").checked;
+  const post=document.getElementById("postmarket").checked;
 
-  const allowed =
+  const allowed=
     inMarket() ||
     (pm && inPremarket()) ||
     (post && inPost());
 
   if(!allowed){
-    rows.innerHTML =
-      "<tr><td colspan='5'>Market closed</td></tr>";
+    rows.innerHTML="<tr><td colspan='5'>Market closed</td></tr>";
     return;
   }
 
-  try {
-    const res = await fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=20&apiKey=${API_KEY}`
+  rows.innerHTML="<tr><td colspan='5'>Scanning…</td></tr>";
+
+  try{
+    const res=await fetch(
+      "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers"
     );
-    const data = await res.json();
+    const data=await res.json();
+    const list=data.finance.result[0].quotes;
 
-    if(!data.tickers){
-      rows.innerHTML =
-        "<tr><td colspan='5'>No data (Polygon free tier)</td></tr>";
-      return;
-    }
+    rows.innerHTML="";
 
-    rows.innerHTML = "";
+    list.forEach(t=>{
+      if(!t.symbol || t.regularMarketPrice>10) return;
 
-    data.tickers.forEach(t => {
-      if(!t.day || !t.day.v) return;
+      const vol=t.regularMarketVolume||0;
+      if(vol<500000) return;
 
-      const vol = t.day.v;
-      const score = Math.min(100, Math.floor(vol / 100000));
-      if(score < 20) return;
+      const score=Math.min(100,Math.floor(vol/100000));
+      const type=inMarket()?"Market":inPremarket()?"PM":"AH";
 
-      const type = inMarket() ? "Market" : inPremarket() ? "PM" : "AH";
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${t.ticker}</td>
-        <td>${t.day.c?.toFixed(2) || "-"}</td>
+      const tr=document.createElement("tr");
+      tr.innerHTML=`
+        <td>${t.symbol}</td>
+        <td>${t.regularMarketPrice.toFixed(2)}</td>
         <td>${score}</td>
         <td>${vol.toLocaleString()}</td>
         <td>${type}</td>
@@ -175,18 +171,16 @@ async function loadData(){
     });
 
     if(!rows.children.length){
-      rows.innerHTML =
-        "<tr><td colspan='5'>No qualifying tickers</td></tr>";
+      rows.innerHTML="<tr><td colspan='5'>No qualifying penny movers</td></tr>";
     }
 
-  } catch(e){
-    rows.innerHTML =
-      "<tr><td colspan='5'>Fetch error</td></tr>";
+  }catch(e){
+    rows.innerHTML="<tr><td colspan='5'>Feed error</td></tr>";
   }
 }
 
 loadData();
-setInterval(loadData, 30000);
+setInterval(loadData,30000);
 </script>
 
 </body>
