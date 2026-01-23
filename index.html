@@ -6,54 +6,48 @@
 <title>PennyS Scanner</title>
 
 <style>
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: linear-gradient(180deg,#0b1220,#060a14);
-    color: #fff;
-  }
-  header {
-    padding: 20px;
-    font-size: 28px;
-    font-weight: 700;
-  }
-  .controls {
-    display: flex;
-    gap: 12px;
-    padding: 0 20px 10px;
-    flex-wrap: wrap;
-  }
-  button {
-    background: #1c263b;
-    color: #fff;
-    border: none;
-    border-radius: 12px;
-    padding: 10px 14px;
-    font-size: 14px;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th, td {
-    padding: 12px;
-    border-bottom: 1px solid #1c263b;
-    font-size: 14px;
-  }
-  th {
-    text-align: left;
-    opacity: .7;
-  }
-  .alert-box {
-    padding: 20px;
-  }
-  input {
-    width: 100%;
-    padding: 10px;
-    border-radius: 10px;
-    border: none;
-    margin-bottom: 10px;
-  }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: radial-gradient(circle at top,#0e1a33,#05080f);
+  color: #fff;
+}
+header {
+  padding: 20px;
+  font-size: 28px;
+  font-weight: 700;
+}
+.controls {
+  display: flex;
+  gap: 14px;
+  padding: 0 20px 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+button {
+  background: #1c263b;
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 12px;
+  border-bottom: 1px solid #1c263b;
+}
+th { opacity: .7; text-align:left; }
+.alert-box { padding: 20px; }
+input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  margin-bottom: 10px;
+}
 </style>
 </head>
 
@@ -65,12 +59,12 @@
   <button onclick="enableSound()">🔔 Enable Sound Alerts</button>
 
   <label>
-    <input type="checkbox" id="premarket">
+    <input type="checkbox" id="premarket" onchange="loadData()">
     Premarket
   </label>
 
   <label>
-    <input type="checkbox" id="postMarket">
+    <input type="checkbox" id="postmarket" onchange="loadData()">
     Post-Market
   </label>
 </div>
@@ -92,10 +86,10 @@
 
 <div class="alert-box">
   <h3>Set Alert</h3>
-  <input id="sym" placeholder="Symbol">
-  <input id="breakout" placeholder="Breakout">
-  <input id="invalidate" placeholder="Invalidation">
-  <button onclick="saveAlert()">Save Alert</button>
+  <input placeholder="Symbol">
+  <input placeholder="Breakout">
+  <input placeholder="Invalidation">
+  <button>Save Alert</button>
 </div>
 
 <audio id="beep">
@@ -107,45 +101,35 @@ const API_KEY = "YOUR_POLYGON_KEY";
 const rows = document.getElementById("rows");
 let soundEnabled = false;
 
-function enableSound() {
+function enableSound(){
   soundEnabled = true;
   document.getElementById("beep").play();
+  navigator.vibrate?.([150,80,150]);
 }
 
-function vibrate() {
-  if (navigator.vibrate) navigator.vibrate([200,100,200]);
+/* 🔥 FORCE US/EASTERN TIME 🔥 */
+function easternMinutes(){
+  const now = new Date();
+  const est = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/New_York" })
+  );
+  return est.getHours()*60 + est.getMinutes();
 }
 
-function nowMinutes() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
-}
+function inMarket(){ return easternMinutes() >= 570 && easternMinutes() <= 960; }
+function inPremarket(){ return easternMinutes() >= 240 && easternMinutes() < 570; }
+function inPost(){ return easternMinutes() > 960 && easternMinutes() <= 1200; }
 
-function inMarket() {
-  const t = nowMinutes();
-  return t >= 570 && t <= 960;
-}
-
-function inPremarket() {
-  const t = nowMinutes();
-  return t >= 240 && t < 570;
-}
-
-function inPostMarket() {
-  const t = nowMinutes();
-  return t > 960 && t <= 1200;
-}
-
-async function loadData() {
+async function loadData(){
   const pm = document.getElementById("premarket").checked;
-  const post = document.getElementById("postMarket").checked;
+  const post = document.getElementById("postmarket").checked;
 
   const allowed =
     inMarket() ||
     (pm && inPremarket()) ||
-    (post && inPostMarket());
+    (post && inPost());
 
-  if (!allowed) {
+  if(!allowed){
     rows.innerHTML =
       "<tr><td colspan='5'>Market closed</td></tr>";
     return;
@@ -157,57 +141,48 @@ async function loadData() {
     );
     const data = await res.json();
 
-    if (!data.tickers) {
+    if(!data.tickers){
       rows.innerHTML =
-        "<tr><td colspan='5'>No data (free tier)</td></tr>";
+        "<tr><td colspan='5'>No data (Polygon free tier)</td></tr>";
       return;
     }
 
     rows.innerHTML = "";
 
     data.tickers.forEach(t => {
-      if (!t.ticker || !t.day || !t.day.v) return;
+      if(!t.day || !t.day.v) return;
 
-      const price = t.day.c?.toFixed(2) || "-";
       const vol = t.day.v;
       const score = Math.min(100, Math.floor(vol / 100000));
+      if(score < 20) return;
 
-      if (score < 20) return;
-
-      const type =
-        inMarket() ? "Market" :
-        inPremarket() ? "PM" : "AH";
+      const type = inMarket() ? "Market" : inPremarket() ? "PM" : "AH";
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${t.ticker}</td>
-        <td>${price}</td>
+        <td>${t.day.c?.toFixed(2) || "-"}</td>
         <td>${score}</td>
         <td>${vol.toLocaleString()}</td>
         <td>${type}</td>
       `;
-
       rows.appendChild(tr);
 
-      if (soundEnabled) {
+      if(soundEnabled){
         document.getElementById("beep").play();
-        vibrate();
+        navigator.vibrate?.([200,100,200]);
       }
     });
 
-    if (!rows.children.length) {
+    if(!rows.children.length){
       rows.innerHTML =
         "<tr><td colspan='5'>No qualifying tickers</td></tr>";
     }
 
-  } catch (e) {
+  } catch(e){
     rows.innerHTML =
-      "<tr><td colspan='5'>Error loading data</td></tr>";
+      "<tr><td colspan='5'>Fetch error</td></tr>";
   }
-}
-
-function saveAlert() {
-  alert("Alert saved locally (demo)");
 }
 
 loadData();
