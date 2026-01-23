@@ -1,96 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
 <title>PennyS Scanner</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
-body{
-  margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-  background:radial-gradient(circle at top,#0e1a33,#05080f);
-  color:#fff;
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: radial-gradient(circle at top, #0b1a2b, #02040a);
+  color: #e5e7eb;
 }
-header{
-  padding:20px;
-  font-size:28px;
-  font-weight:700;
+.container {
+  padding: 20px;
 }
-.controls{
-  display:flex;
-  gap:14px;
-  padding:0 20px 10px;
-  flex-wrap:wrap;
-  align-items:center;
+h1 {
+  margin-bottom: 20px;
 }
-button{
-  background:#1c263b;
-  color:#fff;
-  border:none;
-  border-radius:14px;
-  padding:12px 16px;
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 15px;
 }
-label{opacity:.9}
-table{
-  width:100%;
-  border-collapse:collapse;
+button {
+  background: #1f2937;
+  color: #fff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
 }
-th,td{
-  padding:12px;
-  border-bottom:1px solid #1c263b;
+table {
+  width: 100%;
+  border-collapse: collapse;
 }
-th{opacity:.7;text-align:left}
-.alert-box{padding:20px}
-input{
-  width:100%;
-  padding:12px;
-  border-radius:12px;
-  border:none;
-  margin-bottom:10px;
+th, td {
+  padding: 10px;
+  border-bottom: 1px solid #1f2937;
+  text-align: left;
+}
+th {
+  opacity: 0.7;
+}
+tr.alert {
+  background: rgba(34,197,94,0.15);
+}
+.small {
+  opacity: 0.6;
+  font-size: 12px;
 }
 </style>
 </head>
 
 <body>
+<div class="container">
+  <h1>PennyS Scanner</h1>
 
-<header>PennyS Scanner</header>
+  <div class="controls">
+    <button id="soundBtn">🔔 Sound: ON</button>
+    <label><input type="checkbox" id="pre"> Premarket</label>
+    <label><input type="checkbox" id="post"> Post-Market</label>
+  </div>
 
-<div class="controls">
-  <button onclick="enableSound()">🔔 Enable Sound Alerts</button>
-
-  <label>
-    <input type="checkbox" id="premarket" checked>
-    Premarket
-  </label>
-
-  <label>
-    <input type="checkbox" id="postmarket">
-    Post-Market
-  </label>
-</div>
-
-<table>
-<thead>
-<tr>
-  <th>Sym</th>
-  <th>Price</th>
-  <th>Score</th>
-  <th>Vol</th>
-  <th>Type</th>
-</tr>
-</thead>
-<tbody id="rows">
-<tr><td colspan="5">Loading…</td></tr>
-</tbody>
-</table>
-
-<div class="alert-box">
-  <h3>Set Alert</h3>
-  <input placeholder="Symbol">
-  <input placeholder="Breakout">
-  <input placeholder="Invalidation">
-  <button>Save Alert</button>
+  <table>
+    <thead>
+      <tr>
+        <th>Sym</th>
+        <th>Price</th>
+        <th>Vol</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td colspan="4" class="small">Waiting for scan...</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <audio id="beep">
@@ -98,92 +83,78 @@ input{
 </audio>
 
 <script>
-const rows=document.getElementById("rows");
-let soundEnabled=false;
+const API_KEY = "YOUR_POLYGON_KEY";
+const rows = document.getElementById("rows");
+const beep = document.getElementById("beep");
+const soundBtn = document.getElementById("soundBtn");
 
-function enableSound(){
-  soundEnabled=true;
-  document.getElementById("beep").play().catch(()=>{});
-  navigator.vibrate?.([150,80,150]);
+let soundOn = true;
+let seen = {};
+let lastVolume = {};
+
+soundBtn.onclick = () => {
+  soundOn = !soundOn;
+  soundBtn.innerText = soundOn ? "🔔 Sound: ON" : "🔕 Sound: OFF";
+};
+
+function inSession() {
+  const h = new Date().getHours();
+  if (h >= 4 && h < 9.5) return document.getElementById("pre").checked;
+  if (h >= 9.5 && h < 16) return true;
+  if (h >= 16 && h <= 20) return document.getElementById("post").checked;
+  return false;
 }
 
-/* US/Eastern time */
-function easternMinutes(){
-  const now=new Date();
-  const est=new Date(
-    now.toLocaleString("en-US",{timeZone:"America/New_York"})
-  );
-  return est.getHours()*60+est.getMinutes();
-}
+async function scan() {
+  if (!inSession()) return;
 
-function inMarket(){return easternMinutes()>=570&&easternMinutes()<=960;}
-function inPremarket(){return easternMinutes()>=240&&easternMinutes()<570;}
-function inPost(){return easternMinutes()>960&&easternMinutes()<=1200;}
-
-async function loadData(){
-  const pm=document.getElementById("premarket").checked;
-  const post=document.getElementById("postmarket").checked;
-
-  const allowed =
-    inMarket() ||
-    (pm && inPremarket()) ||
-    (post && inPost());
-
-  if(!allowed){
-    rows.innerHTML="<tr><td colspan='5'>Market closed</td></tr>";
-    return;
-  }
-
-  rows.innerHTML="<tr><td colspan='5'>Scanning movers…</td></tr>";
-
-  try{
-    const res=await fetch(
-      "https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers"
+  try {
+    const res = await fetch(
+      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`
     );
-    const data=await res.json();
-    const list=data.finance.result[0].quotes;
+    const data = await res.json();
 
-    rows.innerHTML="";
+    rows.innerHTML = "";
+    let alerted = false;
 
-    list.forEach(t=>{
-      if(!t.symbol) return;
-      if(!t.regularMarketPrice) return;
-      if(t.regularMarketPrice>10) return;
+    data.tickers.forEach(t => {
+      const p = t.lastTrade?.p;
+      const v = t.day?.v;
+      if (!p || !v) return;
+      if (p < 0.1 || p > 10) return;
+      if (v < 500000) return;
 
-      const vol=t.regularMarketVolume||0;
-      if(vol<500000) return;
+      const prevVol = lastVolume[t.ticker] || 0;
+      const isSpike = v > prevVol * 1.3;
+      lastVolume[t.ticker] = v;
 
-      const score=Math.min(100,Math.floor(vol/100000));
-      const type=inMarket()?"Market":inPremarket()?"PM":"AH";
+      if (!seen[t.ticker] || isSpike) {
+        seen[t.ticker] = true;
 
-      const tr=document.createElement("tr");
-      tr.innerHTML=`
-        <td>${t.symbol}</td>
-        <td>${t.regularMarketPrice.toFixed(2)}</td>
-        <td>${score}</td>
-        <td>${vol.toLocaleString()}</td>
-        <td>${type}</td>
-      `;
-      rows.appendChild(tr);
-
-      if(soundEnabled){
-        document.getElementById("beep").play().catch(()=>{});
-        navigator.vibrate?.([200,100,200]);
+        const tr = document.createElement("tr");
+        tr.className = "alert";
+        tr.innerHTML = `
+          <td>${t.ticker}</td>
+          <td>$${p.toFixed(2)}</td>
+          <td>${(v/1e6).toFixed(2)}M</td>
+          <td>${isSpike ? "VOL SPIKE" : "NEW"}</td>
+        `;
+        rows.appendChild(tr);
+        alerted = true;
       }
     });
 
-    if(!rows.children.length){
-      rows.innerHTML="<tr><td colspan='5'>No qualifying penny movers</td></tr>";
+    if (!rows.children.length) {
+      rows.innerHTML = `<tr><td colspan="4" class="small">No qualified setups</td></tr>`;
     }
 
-  }catch(e){
-    rows.innerHTML="<tr><td colspan='5'>Feed error</td></tr>";
+    if (alerted && soundOn) beep.play();
+  } catch (e) {
+    rows.innerHTML = `<tr><td colspan="4" class="small">Feed error (Polygon free tier)</td></tr>`;
   }
 }
 
-loadData();
-setInterval(loadData,30000);
+setInterval(scan, 15000);
 </script>
-
 </body>
 </html>
