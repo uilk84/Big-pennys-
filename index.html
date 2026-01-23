@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – PMH + News (Corrected)</title>
+<title>PennyS Scanner – Pro Build</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -29,7 +29,7 @@ a{color:#93c5fd;text-decoration:none}
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (PMH + News)</h2>
+  <h2>PennyS Scanner (Pro)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -45,7 +45,10 @@ a{color:#93c5fd;text-decoration:none}
     <label>Risk <input id="riskPerTrade" type="number" value="100"></label>
   </div>
 
-  <div class="small">Session: <span id="session"></span></div>
+  <div class="small">
+    Session: <span id="session"></span> |
+    Feed: <span id="feedLabel"></span>
+  </div>
 
   <table>
     <thead>
@@ -77,15 +80,24 @@ const rows=document.getElementById("rows");
 const beep=document.getElementById("beep");
 const soundBtn=document.getElementById("soundBtn");
 const sessionEl=document.getElementById("session");
+const feedLabel=document.getElementById("feedLabel");
 
 let sound=true;
 let pmh={}, lastPrice={}, lastVol={}, alerted={};
 
-/* FLOAT MAP (extend anytime) */
+/* FLOAT MAP (expand anytime) */
 const floatMap = {
   SMOVE:12000000,
   DRCT:18000000
 };
+
+/* MULTI FEED ROTATION */
+const feeds=["day_gainers","most_actives","small_cap_gainers"];
+let feedIndex=0;
+
+/* NEWS CACHE */
+const newsCache = {}; // {SYM:{title,time}}
+const NEWS_TTL = 5 * 60 * 1000; // 5 minutes
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
@@ -113,14 +125,18 @@ function allowed(){
   return false
 }
 
-/* NEWS LOOKUP */
+/* NEWS LOOKUP WITH CACHE */
 async function getNews(sym){
+  const now=Date.now();
+  if(newsCache[sym] && (now-newsCache[sym].time)<NEWS_TTL){
+    return newsCache[sym].title;
+  }
+
   try{
-    const r=await fetch(
-      `https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`
-    );
+    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`);
     const j=await r.json();
     if(j.news && j.news.length){
+      newsCache[sym]={title:j.news[0].title,time:now};
       return j.news[0].title;
     }
   }catch{}
@@ -128,6 +144,10 @@ async function getNews(sym){
 }
 
 async function scan(){
+  const currentFeed=feeds[feedIndex];
+  feedLabel.textContent=currentFeed;
+  feedIndex=(feedIndex+1)%feeds.length;
+
   sessionEl.textContent=session();
   if(!allowed()){
     rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`;
@@ -137,7 +157,7 @@ async function scan(){
   const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value;
 
   try{
-    const r=await fetch("https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=day_gainers");
+    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`);
     const q=(await r.json()).finance.result[0].quotes;
     rows.innerHTML="";
 
@@ -147,8 +167,7 @@ async function scan(){
 
       const prevPrice=lastPrice[s]||p;
       const prevVol=lastVol[s]||v;
-      lastPrice[s]=p;
-      lastVol[s]=v;
+      lastPrice[s]=p; lastVol[s]=v;
 
       if(session()==="PM"){
         pmh[s]=Math.max(pmh[s]||0,p);
