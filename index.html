@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner</title>
+<title>PennyS Scanner – PMH Break</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -14,6 +14,7 @@ input{width:70px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:6px;border-bottom:1px solid #1f2937}
 th{opacity:.7;text-align:left}
+.pmh{background:rgba(59,130,246,.25)}
 .aplus{background:rgba(34,197,94,.25)}
 .watch{background:rgba(234,179,8,.18)}
 .notrade{opacity:.45}
@@ -26,7 +27,7 @@ a{color:#93c5fd;text-decoration:none}
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner</h2>
+  <h2>PennyS Scanner (PMH Break)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -47,12 +48,18 @@ a{color:#93c5fd;text-decoration:none}
   <table>
     <thead>
       <tr>
-        <th>Sym</th><th>Price</th><th>Vol</th>
-        <th>Stop</th><th>R:R</th><th>Sh</th><th>Grade</th>
+        <th>Sym</th>
+        <th>Price</th>
+        <th>PMH</th>
+        <th>Vol</th>
+        <th>Stop</th>
+        <th>R:R</th>
+        <th>Sh</th>
+        <th>Signal</th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td colspan="7" class="small">Waiting…</td></tr>
+      <tr><td colspan="8" class="small">Waiting…</td></tr>
     </tbody>
   </table>
 </div>
@@ -67,7 +74,8 @@ const beep=document.getElementById("beep");
 const soundBtn=document.getElementById("soundBtn");
 const sessionEl=document.getElementById("session");
 
-let sound=true, hod={}, lastVol={}, alerted={};
+let sound=true;
+let pmh={}, lastVol={}, alerted={};
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
@@ -98,7 +106,7 @@ function allowed(){
 async function scan(){
   sessionEl.textContent=session()
   if(!allowed()){
-    rows.innerHTML=`<tr><td colspan=7 class=small>Session blocked</td></tr>`
+    rows.innerHTML=`<tr><td colspan=8 class=small>Session blocked</td></tr>`
     return
   }
 
@@ -113,37 +121,52 @@ async function scan(){
       const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
       if(!s||!p||p<min||p>max) return
 
-      const prev=hod[s]||0
-      hod[s]=Math.max(prev,p)
-      const stop=(prev||p)*0.97
+      const prevVol=lastVol[s]||0
+      lastVol[s]=v
+
+      // build PMH during premarket only
+      if(session()==="PM"){
+        pmh[s]=Math.max(pmh[s]||0,p)
+      }
+
+      const hasPMH=pmh[s]>0
+      const pmhBreak=hasPMH && p>pmh[s] && v>prevVol*1.3
+
+      const stop=hasPMH?pmh[s]*0.97:p*0.97
       const risk=p-stop
       if(risk<=0) return
 
       const sh=Math.floor(riskMax/risk)
       const rr=((risk*2)/risk).toFixed(1)
 
-      let g="NO",c="notrade"
-      if(p>prev&&v>1e6&&sh>=1){g="A+";c="aplus"}
-      else if(p>prev||v>5e5){g="WATCH";c="watch"}
+      let sig="NO",cls="notrade"
+      if(pmhBreak&&sh>=1){sig="PMH BREAK";cls="pmh"}
+      else if(p>pmh[s]||v>5e5){sig="WATCH";cls="watch"}
 
       rows.innerHTML+=`
-        <tr class=${c}>
+        <tr class=${cls}>
           <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
           <td>$${p.toFixed(2)}</td>
+          <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
           <td>${(v/1e6).toFixed(2)}M</td>
           <td>$${stop.toFixed(2)}</td>
           <td class=${rr>=2?"good":"bad"}>${rr}</td>
           <td>${sh}</td>
-          <td>${g}</td>
+          <td>${sig}</td>
         </tr>`
-      if(g==="A+"&&!alerted[s]&&sound){beep.play();alerted[s]=1}
+
+      if(sig==="PMH BREAK"&&!alerted[s]&&sound){
+        beep.play()
+        navigator.vibrate?.([200,100,200])
+        alerted[s]=1
+      }
     })
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan=7 class=small>No setups</td></tr>`
+      rows.innerHTML=`<tr><td colspan=8 class=small>No PMH setups</td></tr>`
 
   }catch{
-    rows.innerHTML=`<tr><td colspan=7 class=small>Feed error</td></tr>`
+    rows.innerHTML=`<tr><td colspan=8 class=small>Feed error</td></tr>`
   }
 }
 
