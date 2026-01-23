@@ -4,45 +4,32 @@
 <meta charset="UTF-8" />
 <title>PennyS Scanner</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
 <style>
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: radial-gradient(circle at top, #0b1a2b, #02040a);
-  color: #e5e7eb;
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:radial-gradient(circle at top,#0b1a2b,#02040a);
+  color:#e5e7eb;
 }
-.container { padding: 20px; }
-h1 { margin-bottom: 16px; }
-.controls {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  margin-bottom: 14px;
+.container{padding:20px}
+h1{margin-bottom:12px}
+.controls{display:flex;gap:14px;align-items:center;margin-bottom:10px}
+button{
+  background:#1f2937;color:#fff;border:none;
+  padding:10px 14px;border-radius:12px
 }
-button {
-  background: #1f2937;
-  color: #fff;
-  border: none;
-  padding: 10px 14px;
-  border-radius: 12px;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-th, td {
-  padding: 10px;
-  border-bottom: 1px solid #1f2937;
-}
-th { opacity: 0.7; text-align: left; }
-tr.breakout { background: rgba(34,197,94,0.18); }
-a {
-  color: #93c5fd;
-  text-decoration: none;
-  font-weight: 600;
-}
-.small { opacity: 0.6; font-size: 12px; }
+.small{opacity:.65;font-size:12px;margin-bottom:8px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left}
+th{opacity:.7}
+tr.aplus{background:rgba(34,197,94,.22)}
+tr.watch{background:rgba(234,179,8,.18)}
+tr.notrade{opacity:.45}
+a{color:#93c5fd;text-decoration:none;font-weight:600}
+.tag{font-weight:700}
+.tag.aplus{color:#22c55e}
+.tag.watch{color:#eab308}
+.tag.no{color:#ef4444}
 </style>
 </head>
 
@@ -52,9 +39,11 @@ a {
 
   <div class="controls">
     <button id="soundBtn">🔔 Sound: ON</button>
-    <label><input type="checkbox" id="pre" checked> Premarket</label>
+    <label><input type="checkbox" id="pre"> Premarket</label>
     <label><input type="checkbox" id="post"> Post-Market</label>
   </div>
+
+  <div class="small">Session: <span id="sessionLabel"></span></div>
 
   <table>
     <thead>
@@ -62,7 +51,7 @@ a {
         <th>Sym</th>
         <th>Price</th>
         <th>Vol</th>
-        <th>Signal</th>
+        <th>Grade</th>
       </tr>
     </thead>
     <tbody id="rows">
@@ -76,105 +65,122 @@ a {
 </audio>
 
 <script>
-const rows = document.getElementById("rows");
-const beep = document.getElementById("beep");
-const soundBtn = document.getElementById("soundBtn");
+const rows=document.getElementById("rows");
+const beep=document.getElementById("beep");
+const soundBtn=document.getElementById("soundBtn");
+const sessionLabel=document.getElementById("sessionLabel");
 
-let soundOn = true;
-let hod = {};
-let lastVol = {};
-let alerted = {};
+let soundOn=true;
+let hod={}, lastVol={}, alerted={};
 
-soundBtn.onclick = () => {
-  soundOn = !soundOn;
-  soundBtn.innerText = soundOn ? "🔔 Sound: ON" : "🔕 Sound: OFF";
+soundBtn.onclick=()=>{
+  soundOn=!soundOn;
+  soundBtn.innerText=soundOn?"🔔 Sound: ON":"🔕 Sound: OFF";
 };
 
-/* Session logic (simple + reliable) */
-function inSession() {
-  const d = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/New_York" })
+function currentSession(){
+  const d=new Date(
+    new Date().toLocaleString("en-US",{timeZone:"America/New_York"})
   );
-  const h = d.getHours() + d.getMinutes() / 60;
+  const h=d.getHours()+d.getMinutes()/60;
+  if(h>=4&&h<9.5) return "PRE";
+  if(h>=9.5&&h<16) return "MARKET";
+  if(h>=16&&h<=20) return "POST";
+  return "CLOSED";
+}
 
-  if (h >= 4 && h < 9.5) return document.getElementById("pre").checked;
-  if (h >= 9.5 && h < 16) return true;
-  if (h >= 16 && h <= 20) return document.getElementById("post").checked;
+function sessionAllowed(){
+  const s=currentSession();
+  if(s==="PRE") return document.getElementById("pre").checked;
+  if(s==="MARKET") return true;
+  if(s==="POST") return document.getElementById("post").checked;
   return false;
 }
 
-async function scan() {
-  if (!inSession()) {
-    rows.innerHTML =
-      `<tr><td colspan="4" class="small">Outside selected session</td></tr>`;
+async function scan(){
+  const s=currentSession();
+  sessionLabel.innerText=s;
+
+  if(!sessionAllowed()){
+    rows.innerHTML=`<tr><td colspan="4" class="small">
+      Session mismatch — ${s} (toggle required)
+    </td></tr>`;
     return;
   }
 
-  try {
-    const res = await fetch(
+  try{
+    const res=await fetch(
       "https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers"
     );
+    const data=await res.json();
+    const list=data?.finance?.result?.[0]?.quotes||[];
 
-    const data = await res.json();
-    const list = data?.finance?.result?.[0]?.quotes || [];
+    rows.innerHTML="";
+    let fired=false;
 
-    rows.innerHTML = "";
-    let fired = false;
+    list.forEach(t=>{
+      const sym=t.symbol;
+      const price=t.regularMarketPrice;
+      const vol=t.regularMarketVolume||0;
+      if(!sym||!price) return;
 
-    list.forEach(t => {
-      const sym = t.symbol;
-      const price = t.regularMarketPrice;
-      const vol = t.regularMarketVolume || 0;
+      if(price<0.1||price>10) return;
 
-      if (!sym || !price) return;
-      if (price < 0.1 || price > 10) return;
-      if (vol < 500000) return;
+      const prevH=hod[sym]||0;
+      const prevV=lastVol[sym]||0;
+      hod[sym]=Math.max(prevH,price);
+      lastVol[sym]=vol;
 
-      const prevHod = hod[sym] || 0;
-      const prevVol = lastVol[sym] || 0;
+      const breakout=price>prevH;
+      const volAccel=vol>prevV*1.25;
+      const strongVol=vol>=1500000;
 
-      hod[sym] = Math.max(prevHod, price);
-      lastVol[sym] = vol;
+      let grade="NO";
+      let cls="notrade";
 
-      const breakout = price > prevHod && vol > prevVol * 1.25;
+      if(breakout&&volAccel&&strongVol){
+        grade="A+";
+        cls="aplus";
+      } else if(breakout||vol>=500000){
+        grade="WATCH";
+        cls="watch";
+      }
 
-      if (breakout && !alerted[sym]) {
-        alerted[sym] = true;
-        fired = true;
+      const tr=document.createElement("tr");
+      tr.className=cls;
 
-        const tr = document.createElement("tr");
-        tr.className = "breakout";
-        tr.innerHTML = `
-          <td>
-            <a href="https://www.tradingview.com/chart/?symbol=${sym}"
-               target="_blank">${sym}</a>
-          </td>
-          <td>$${price.toFixed(2)}</td>
-          <td>${(vol / 1e6).toFixed(2)}M</td>
-          <td>BREAKOUT</td>
-        `;
-        rows.appendChild(tr);
+      tr.innerHTML=`
+        <td>
+          <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">${sym}</a>
+        </td>
+        <td>$${price.toFixed(2)}</td>
+        <td>${(vol/1e6).toFixed(2)}M</td>
+        <td class="tag ${grade==='A+'?'aplus':grade==='WATCH'?'watch':'no'}">${grade}</td>
+      `;
+      rows.appendChild(tr);
+
+      if(grade==="A+"&&!alerted[sym]){
+        alerted[sym]=true;
+        fired=true;
       }
     });
 
-    if (!rows.children.length) {
-      rows.innerHTML =
-        `<tr><td colspan="4" class="small">No breakout setups</td></tr>`;
+    if(!rows.children.length){
+      rows.innerHTML=`<tr><td colspan="4" class="small">No qualified setups</td></tr>`;
     }
 
-    if (fired && soundOn) {
+    if(fired&&soundOn){
       beep.play().catch(()=>{});
       navigator.vibrate?.([200,100,200]);
     }
 
-  } catch (e) {
-    rows.innerHTML =
-      `<tr><td colspan="4" class="small">Yahoo feed unavailable</td></tr>`;
+  }catch(e){
+    rows.innerHTML=`<tr><td colspan="4" class="small">Yahoo feed unavailable</td></tr>`;
   }
 }
 
 scan();
-setInterval(scan, 15000);
+setInterval(scan,15000);
 </script>
 </body>
 </html>
