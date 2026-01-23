@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – PMH + News</title>
+<title>PennyS Scanner – PMH + News (Corrected)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -113,7 +113,7 @@ function allowed(){
   return false
 }
 
-/* ===== NEWS LOOKUP ===== */
+/* NEWS LOOKUP */
 async function getNews(sym){
   try{
     const r=await fetch(
@@ -121,15 +121,14 @@ async function getNews(sym){
     );
     const j=await r.json();
     if(j.news && j.news.length){
-      const n=j.news[0];
-      return n.title;
+      return j.news[0].title;
     }
   }catch{}
   return null;
 }
 
 async function scan(){
-  sessionEl.textContent=session()
+  sessionEl.textContent=session();
   if(!allowed()){
     rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`;
     return;
@@ -148,7 +147,8 @@ async function scan(){
 
       const prevPrice=lastPrice[s]||p;
       const prevVol=lastVol[s]||v;
-      lastPrice[s]=p; lastVol[s]=v;
+      lastPrice[s]=p;
+      lastVol[s]=v;
 
       if(session()==="PM"){
         pmh[s]=Math.max(pmh[s]||0,p);
@@ -160,10 +160,14 @@ async function scan(){
       const volAccel=v>prevVol*1.3;
 
       const fl=floatMap[s]||null;
-      if(!fl || fl>30000000) continue; // FLOAT FILTER
+      let floatTag="—";
+      if(fl){
+        if(fl<10000000) floatTag="ULTRA";
+        else if(fl<30000000) floatTag="LOW";
+        else floatTag="HIGH";
+      }
 
       const news=await getNews(s);
-      if(!news) continue; // NEWS FILTER
 
       const stop=hasPMH?pmh[s]*0.97:p*0.97;
       const risk=p-stop;
@@ -173,7 +177,7 @@ async function scan(){
       const rr=((risk*2)/risk).toFixed(1);
 
       let sig="WATCH",cls="watch";
-      if(retestHold && volAccel && sh>=1){
+      if(retestHold && volAccel && fl && fl<30000000 && news && sh>=1){
         sig="A+ PMH + NEWS";
         cls="aplus";
       }
@@ -183,9 +187,9 @@ async function scan(){
           <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
           <td>$${p.toFixed(2)}</td>
           <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
-          <td class="lowfloat">LOW</td>
+          <td>${floatTag}</td>
           <td>${(v/1e6).toFixed(2)}M</td>
-          <td class="news">${news}</td>
+          <td class="news">${news||"—"}</td>
           <td>$${stop.toFixed(2)}</td>
           <td class=${rr>=2?"good":"bad"}>${rr}</td>
           <td>${sh}</td>
@@ -200,7 +204,7 @@ async function scan(){
     }
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan=10 class=small>No A+ news setups</td></tr>`;
+      rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`;
 
   }catch{
     rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`;
