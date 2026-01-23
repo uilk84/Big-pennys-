@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – PMH Break</title>
+<title>PennyS Scanner – PMH Retest</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -14,10 +14,11 @@ input{width:70px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:6px;border-bottom:1px solid #1f2937}
 th{opacity:.7;text-align:left}
-.pmh{background:rgba(59,130,246,.25)}
 .aplus{background:rgba(34,197,94,.25)}
 .watch{background:rgba(234,179,8,.18)}
 .notrade{opacity:.45}
+.lowfloat{color:#22c55e;font-weight:700}
+.ultrafloat{color:#38bdf8;font-weight:700}
 .good{color:#22c55e;font-weight:700}
 .bad{color:#ef4444;font-weight:700}
 .small{opacity:.6;font-size:12px}
@@ -27,7 +28,7 @@ a{color:#93c5fd;text-decoration:none}
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (PMH Break)</h2>
+  <h2>PennyS Scanner (PMH Retest)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -51,6 +52,7 @@ a{color:#93c5fd;text-decoration:none}
         <th>Sym</th>
         <th>Price</th>
         <th>PMH</th>
+        <th>Float</th>
         <th>Vol</th>
         <th>Stop</th>
         <th>R:R</th>
@@ -59,7 +61,7 @@ a{color:#93c5fd;text-decoration:none}
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td colspan="8" class="small">Waiting…</td></tr>
+      <tr><td colspan="9" class="small">Waiting…</td></tr>
     </tbody>
   </table>
 </div>
@@ -75,7 +77,13 @@ const soundBtn=document.getElementById("soundBtn");
 const sessionEl=document.getElementById("session");
 
 let sound=true;
-let pmh={}, lastVol={}, alerted={};
+let pmh={}, lastPrice={}, lastVol={}, alerted={};
+
+/* SIMPLE FLOAT MAP (can expand later) */
+const floatMap = {
+  SMOVE: 12000000,
+  DRCT: 18000000
+};
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
@@ -106,7 +114,7 @@ function allowed(){
 async function scan(){
   sessionEl.textContent=session()
   if(!allowed()){
-    rows.innerHTML=`<tr><td colspan=8 class=small>Session blocked</td></tr>`
+    rows.innerHTML=`<tr><td colspan=9 class=small>Session blocked</td></tr>`
     return
   }
 
@@ -121,33 +129,48 @@ async function scan(){
       const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
       if(!s||!p||p<min||p>max) return
 
-      const prevVol=lastVol[s]||0
+      const prevPrice=lastPrice[s]||p
+      const prevVol=lastVol[s]||v
+      lastPrice[s]=p
       lastVol[s]=v
 
-      // build PMH during premarket only
       if(session()==="PM"){
         pmh[s]=Math.max(pmh[s]||0,p)
       }
 
       const hasPMH=pmh[s]>0
-      const pmhBreak=hasPMH && p>pmh[s] && v>prevVol*1.3
+      const brokePMH = hasPMH && p>pmh[s]
+      const retestHold = brokePMH && prevPrice>=pmh[s]*0.99 && p>=pmh[s]
+      const volAccel = v>prevVol*1.3
 
-      const stop=hasPMH?pmh[s]*0.97:p*0.97
-      const risk=p-stop
+      const fl=floatMap[s]||null
+      let floatTag="–", floatClass=""
+      if(fl){
+        if(fl<10000000){floatTag="ULTRA";floatClass="ultrafloat"}
+        else if(fl<30000000){floatTag="LOW";floatClass="lowfloat"}
+        else floatTag="HIGH"
+      }
+
+      const stop = hasPMH ? pmh[s]*0.97 : p*0.97
+      const risk = p-stop
       if(risk<=0) return
 
       const sh=Math.floor(riskMax/risk)
       const rr=((risk*2)/risk).toFixed(1)
 
       let sig="NO",cls="notrade"
-      if(pmhBreak&&sh>=1){sig="PMH BREAK";cls="pmh"}
-      else if(p>pmh[s]||v>5e5){sig="WATCH";cls="watch"}
+      if(retestHold && volAccel && fl && fl<30000000 && sh>=1){
+        sig="A+ PMH RETEST"
+        cls="aplus"
+      }
+      else if(brokePMH){sig="WATCH";cls="watch"}
 
       rows.innerHTML+=`
         <tr class=${cls}>
           <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
           <td>$${p.toFixed(2)}</td>
           <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
+          <td class=${floatClass}>${floatTag}</td>
           <td>${(v/1e6).toFixed(2)}M</td>
           <td>$${stop.toFixed(2)}</td>
           <td class=${rr>=2?"good":"bad"}>${rr}</td>
@@ -155,7 +178,7 @@ async function scan(){
           <td>${sig}</td>
         </tr>`
 
-      if(sig==="PMH BREAK"&&!alerted[s]&&sound){
+      if(sig==="A+ PMH RETEST" && !alerted[s] && sound){
         beep.play()
         navigator.vibrate?.([200,100,200])
         alerted[s]=1
@@ -163,10 +186,10 @@ async function scan(){
     })
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan=8 class=small>No PMH setups</td></tr>`
+      rows.innerHTML=`<tr><td colspan=9 class=small>No A+ setups</td></tr>`
 
   }catch{
-    rows.innerHTML=`<tr><td colspan=8 class=small>Feed error</td></tr>`
+    rows.innerHTML=`<tr><td colspan=9 class=small>Feed error</td></tr>`
   }
 }
 
