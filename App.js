@@ -1,4 +1,4 @@
-const API_KEY = "ulQA9P7NZIQgGpYn5vNT7TUsDptthjP_";
+const API_KEY = JAjw5aC1LdmlRQVQ7SFFyDI4fn4WfOj9;
 const REFRESH_MS = 15000;
 
 let audioUnlocked = false;
