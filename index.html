@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – Pro Build</title>
+<title>PennyS Scanner – Leader Mode</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -16,7 +16,7 @@ th,td{padding:6px;border-bottom:1px solid #1f2937}
 th{opacity:.7;text-align:left}
 .aplus{background:rgba(34,197,94,.25)}
 .watch{background:rgba(234,179,8,.18)}
-.notrade{opacity:.45}
+.leader{background:rgba(168,85,247,.35)}
 .lowfloat{color:#22c55e;font-weight:700}
 .ultrafloat{color:#38bdf8;font-weight:700}
 .good{color:#22c55e;font-weight:700}
@@ -24,12 +24,13 @@ th{opacity:.7;text-align:left}
 .small{opacity:.6;font-size:12px}
 a{color:#93c5fd;text-decoration:none}
 .news{font-size:11px;opacity:.85}
+.tag{font-weight:800}
 </style>
 </head>
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (Pro)</h2>
+  <h2>PennyS Scanner (Leader Mode)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -85,19 +86,13 @@ const feedLabel=document.getElementById("feedLabel");
 let sound=true;
 let pmh={}, lastPrice={}, lastVol={}, alerted={};
 
-/* FLOAT MAP (expand anytime) */
-const floatMap = {
-  SMOVE:12000000,
-  DRCT:18000000
-};
+const floatMap={ SMOVE:12000000, DRCT:18000000 };
 
-/* MULTI FEED ROTATION */
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
 let feedIndex=0;
 
-/* NEWS CACHE */
-const newsCache = {}; // {SYM:{title,time}}
-const NEWS_TTL = 5 * 60 * 1000; // 5 minutes
+const newsCache={};
+const NEWS_TTL=5*60*1000;
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
@@ -116,7 +111,6 @@ function session(){
   if(h>=16&&h<=20) return "AH"
   return "CLOSED"
 }
-
 function allowed(){
   const s=session()
   if(s==="PM") return pre.checked
@@ -125,80 +119,83 @@ function allowed(){
   return false
 }
 
-/* NEWS LOOKUP WITH CACHE */
 async function getNews(sym){
-  const now=Date.now();
-  if(newsCache[sym] && (now-newsCache[sym].time)<NEWS_TTL){
-    return newsCache[sym].title;
-  }
-
+  const now=Date.now()
+  if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym].title
   try{
-    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`);
-    const j=await r.json();
-    if(j.news && j.news.length){
-      newsCache[sym]={title:j.news[0].title,time:now};
-      return j.news[0].title;
+    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
+    const j=await r.json()
+    if(j.news&&j.news.length){
+      newsCache[sym]={title:j.news[0].title,time:now}
+      return j.news[0].title
     }
   }catch{}
-  return null;
+  return null
 }
 
 async function scan(){
-  const currentFeed=feeds[feedIndex];
-  feedLabel.textContent=currentFeed;
-  feedIndex=(feedIndex+1)%feeds.length;
+  const currentFeed=feeds[feedIndex]
+  feedLabel.textContent=currentFeed
+  feedIndex=(feedIndex+1)%feeds.length
 
-  sessionEl.textContent=session();
+  sessionEl.textContent=session()
   if(!allowed()){
-    rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`;
-    return;
+    rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`
+    return
   }
 
-  const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value;
+  const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value
 
   try{
-    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`);
-    const q=(await r.json()).finance.result[0].quotes;
-    rows.innerHTML="";
+    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`)
+    const q=(await r.json()).finance.result[0].quotes
+
+    const sorted=[...q].sort((a,b)=>(b.regularMarketVolume||0)-(a.regularMarketVolume||0))
+    const leaders=sorted.slice(0,3).map(x=>x.symbol)
+
+    rows.innerHTML=""
 
     for(const t of q){
-      const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol;
-      if(!s||!p||p<min||p>max) continue;
+      const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
+      if(!s||!p||p<min||p>max) continue
 
-      const prevPrice=lastPrice[s]||p;
-      const prevVol=lastVol[s]||v;
-      lastPrice[s]=p; lastVol[s]=v;
+      const prevPrice=lastPrice[s]||p
+      const prevVol=lastVol[s]||v
+      lastPrice[s]=p; lastVol[s]=v
 
-      if(session()==="PM"){
-        pmh[s]=Math.max(pmh[s]||0,p);
-      }
+      if(session()==="PM") pmh[s]=Math.max(pmh[s]||0,p)
 
-      const hasPMH=pmh[s]>0;
-      const brokePMH=hasPMH && p>pmh[s];
-      const retestHold=brokePMH && prevPrice>=pmh[s]*0.99 && p>=pmh[s];
-      const volAccel=v>prevVol*1.3;
+      const hasPMH=pmh[s]>0
+      const brokePMH=hasPMH&&p>pmh[s]
+      const retestHold=brokePMH&&prevPrice>=pmh[s]*0.99&&p>=pmh[s]
+      const volAccel=v>prevVol*1.3
 
-      const fl=floatMap[s]||null;
-      let floatTag="—";
+      const fl=floatMap[s]||null
+      let floatTag="—"
       if(fl){
-        if(fl<10000000) floatTag="ULTRA";
-        else if(fl<30000000) floatTag="LOW";
-        else floatTag="HIGH";
+        if(fl<10000000) floatTag="ULTRA"
+        else if(fl<30000000) floatTag="LOW"
+        else floatTag="HIGH"
       }
 
-      const news=await getNews(s);
+      const news=await getNews(s)
 
-      const stop=hasPMH?pmh[s]*0.97:p*0.97;
-      const risk=p-stop;
-      if(risk<=0) continue;
+      const stop=hasPMH?pmh[s]*0.97:p*0.97
+      const risk=p-stop
+      if(risk<=0) continue
 
-      const sh=Math.floor(riskMax/risk);
-      const rr=((risk*2)/risk).toFixed(1);
+      const sh=Math.floor(riskMax/risk)
+      const rr=((risk*2)/risk).toFixed(1)
 
-      let sig="WATCH",cls="watch";
-      if(retestHold && volAccel && fl && fl<30000000 && news && sh>=1){
-        sig="A+ PMH + NEWS";
-        cls="aplus";
+      let sig="WATCH",cls="watch"
+      if(retestHold&&volAccel&&fl&&fl<30000000&&news&&sh>=1){
+        sig="A+ PMH + NEWS"
+        cls="aplus"
+      }
+
+      if(leaders.includes(s)){
+        cls="leader"
+        sig="🔥 LEADER"
       }
 
       rows.innerHTML+=`
@@ -212,26 +209,26 @@ async function scan(){
           <td>$${stop.toFixed(2)}</td>
           <td class=${rr>=2?"good":"bad"}>${rr}</td>
           <td>${sh}</td>
-          <td>${sig}</td>
-        </tr>`;
+          <td class="tag">${sig}</td>
+        </tr>`
 
-      if(sig==="A+ PMH + NEWS" && !alerted[s] && sound){
-        beep.play();
-        navigator.vibrate?.([200,100,200]);
-        alerted[s]=1;
+      if(sig==="A+ PMH + NEWS"&&!alerted[s]&&sound){
+        beep.play()
+        navigator.vibrate?.([200,100,200])
+        alerted[s]=1
       }
     }
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`;
+      rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`
 
   }catch{
-    rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`;
+    rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`
   }
 }
 
-scan();
-setInterval(scan,20000);
+scan()
+setInterval(scan,20000)
 </script>
 </body>
 </html>
