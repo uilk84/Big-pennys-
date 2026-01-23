@@ -3,20 +3,39 @@
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PennyS Scanner</title>
+
 <style>
-body{background:#0f172a;color:#e5e7eb;font-family:sans-serif;padding:10px}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th,td{padding:8px;border-bottom:1px solid #334155;text-align:left}
+body{
+  background:#0f172a;
+  color:#e5e7eb;
+  font-family:sans-serif;
+  padding:12px;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:10px;
+}
+th,td{
+  padding:8px;
+  border-bottom:1px solid #334155;
+  text-align:left;
+}
 .badgeA{color:#22c55e;font-weight:bold}
 .badgeW{color:#facc15;font-weight:bold}
-input,button{margin:4px;padding:6px}
+button,input{
+  padding:6px;
+  margin:4px;
+}
 </style>
 </head>
+
 <body>
 
 <h2>PennyS Scanner</h2>
 
 <button onclick="unlockAudio()">🔔 Enable Sound Alerts</button>
+
 <label>
   <input type="checkbox" id="pm"> Premarket
 </label>
@@ -31,7 +50,9 @@ input,button{margin:4px;padding:6px}
   <th>Type</th>
 </tr>
 </thead>
-<tbody id="rows"></tbody>
+<tbody id="rows">
+<tr><td colspan="5">Loading…</td></tr>
+</tbody>
 </table>
 
 <h3>Set Alert</h3>
@@ -41,65 +62,79 @@ input,button{margin:4px;padding:6px}
 <button onclick="addAlert(asym.value,abreak.value,ainv.value)">Save Alert</button>
 
 <script src="app.js"></script>
+
 <script>
+/* ---------- PREMARKET TOGGLE ---------- */
 pm.checked = localStorage.getItem('premarket') === 'on';
 pm.onchange = ()=>{
-  localStorage.setItem('premarket', pm.checked?'on':'off');
+  localStorage.setItem('premarket', pm.checked ? 'on' : 'off');
   location.reload();
 };
 
+/* ---------- MAIN LOAD ---------- */
 async function load(){
   if(!inTradeWindow()){
-    rows.innerHTML='<tr><td colspan=5>Outside trade window</td></tr>';
+    rows.innerHTML =
+      '<tr><td colspan="5">Outside trade window</td></tr>';
     return;
   }
 
+  const today = new Date().toISOString().split('T')[0];
+
   const r = await fetch(
-    `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`
+    `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${today}?adjusted=true&apiKey=${API_KEY}`
   );
+
   const d = await r.json();
 
-  const stocks = d.tickers
+  if(!d.results){
+    rows.innerHTML =
+      '<tr><td colspan="5">No data returned</td></tr>';
+    return;
+  }
+
+  const stocks = d.results
     .filter(x =>
-      x.lastTrade?.p>=0.3 &&
-      x.lastTrade.p<=5 &&
-      (x.todaysChangePerc||0)>=2
+      x.c >= 0.3 &&
+      x.c <= 5 &&
+      ((x.c - x.o) / x.o) * 100 >= 2
     )
     .map(x=>{
-      const v = x.day?.v || x.min?.c || 0;
-      const pv = x.prevDay?.v || 1;
       const o = {
-        sym:x.ticker,
-        p:x.lastTrade.p,
-        c:x.todaysChangePerc||0,
-        v:v,
-        hod:x.day?.h||x.lastTrade.p,
-        vs:v/pv
+        sym: x.T,
+        p: x.c,
+        c: ((x.c - x.o) / x.o) * 100,
+        v: x.v,
+        hod: x.h,
+        vs: x.v / 250000
       };
       o.score = score(o);
       return o;
     })
-    .filter(x=>x.v>=250000 && x.vs>=1.2 && x.score>=55)
+    .filter(x => x.v >= 250000 && x.score >= 55)
     .sort((a,b)=>b.score-a.score)
     .slice(0,20);
 
-  rows.innerHTML = stocks.map(x=>`
-    <tr>
-      <td>${x.sym}</td>
-      <td>$${x.p.toFixed(2)}</td>
-      <td>${x.score}</td>
-      <td>${fmt(x.v)}</td>
-      <td class="${x.score>=70?'badgeA':'badgeW'}">
-        ${x.score>=70?'A+':'WATCH'}
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan=5>No movers</td></tr>';
+  rows.innerHTML = stocks.length
+    ? stocks.map(x=>`
+        <tr>
+          <td><b>${x.sym}</b></td>
+          <td>$${x.p.toFixed(2)}</td>
+          <td>${x.score}</td>
+          <td>${fmt(x.v)}</td>
+          <td class="${x.score>=70?'badgeA':'badgeW'}">
+            ${x.score>=70?'A+':'WATCH'}
+          </td>
+        </tr>
+      `).join('')
+    : '<tr><td colspan="5">No movers right now</td></tr>';
 
   checkAlerts(stocks);
 }
 
 load();
-setInterval(load,15000);
+setInterval(load, 60000); // grouped data updates ~1 min
 </script>
+
 </body>
 </html>
