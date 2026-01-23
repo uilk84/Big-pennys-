@@ -1,137 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PennyS Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{margin:0;font-family:-apple-system;background:#02040a;color:#e5e7eb}
+.container{padding:16px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+button,input{background:#1f2937;color:#fff;border:none;border-radius:8px;padding:6px 10px}
+input{width:70px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px;border-bottom:1px solid #1f2937}
+th{opacity:.7;text-align:left}
+.aplus{background:rgba(34,197,94,.25)}
+.watch{background:rgba(234,179,8,.18)}
+.notrade{opacity:.45}
+.good{color:#22c55e;font-weight:700}
+.bad{color:#ef4444;font-weight:700}
+.small{opacity:.6;font-size:12px}
+a{color:#93c5fd;text-decoration:none}
+</style>
+</head>
+
+<body>
+<div class="container">
+  <h2>PennyS Scanner</h2>
+
+  <div class="controls">
+    <button id="soundBtn">🔔 ON</button>
+    <label><input type="checkbox" id="pre"> PM</label>
+    <label><input type="checkbox" id="post"> AH</label>
+
+    <button onclick="preset('lotto')">🎰</button>
+    <button onclick="preset('scalp')">⚡</button>
+    <button onclick="preset('momentum')">🚀</button>
+
+    <label>Min <input id="minPrice" type="number" value="0.10"></label>
+    <label>Max <input id="maxPrice" type="number" value="10"></label>
+    <label>Risk <input id="riskPerTrade" type="number" value="100"></label>
+  </div>
+
+  <div class="small">Session: <span id="session"></span></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Sym</th><th>Price</th><th>Vol</th>
+        <th>Stop</th><th>R:R</th><th>Sh</th><th>Grade</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td colspan="7" class="small">Waiting…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<audio id="beep">
+  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
+
 <script>
-/* ================= DOM ================= */
-const rows = document.getElementById("rows");
-const beep = document.getElementById("beep");
-const soundBtn = document.getElementById("soundBtn");
-const sessionLabel = document.getElementById("sessionLabel");
+const rows=document.getElementById("rows");
+const beep=document.getElementById("beep");
+const soundBtn=document.getElementById("soundBtn");
+const sessionEl=document.getElementById("session");
 
-/* ================= STATE ================= */
-let soundOn = true;
-let hod = {}, lastVol = {}, base = {}, alerted = {};
+let sound=true, hod={}, lastVol={}, alerted={};
 
-/* ================= SOUND ================= */
-soundBtn.onclick = () => {
-  soundOn = !soundOn;
-  soundBtn.innerText = soundOn ? "🔔 Sound: ON" : "🔕 Sound: OFF";
-};
+soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
-/* ================= PRESETS ================= */
-function setPreset(type){
-  if(type==="lotto"){minPrice.value=0.10;maxPrice.value=1.00;}
-  if(type==="scalp"){minPrice.value=0.30;maxPrice.value=3.00;}
-  if(type==="momentum"){minPrice.value=1.00;maxPrice.value=10.00;}
-  scan();
+function preset(p){
+  if(p==="lotto"){minPrice.value=.1;maxPrice.value=1}
+  if(p==="scalp"){minPrice.value=.3;maxPrice.value=3}
+  if(p==="momentum"){minPrice.value=1;maxPrice.value=10}
+  scan()
 }
 
-/* ================= SESSION ================= */
-function currentSession(){
-  const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
-  const h=d.getHours()+d.getMinutes()/60;
-  if(h>=4&&h<9.5) return "PRE";
-  if(h>=9.5&&h<16) return "MARKET";
-  if(h>=16&&h<=20) return "POST";
-  return "CLOSED";
-}
-function sessionAllowed(){
-  const s=currentSession();
-  if(s==="PRE") return pre.checked;
-  if(s==="MARKET") return true;
-  if(s==="POST") return post.checked;
-  return false;
+function session(){
+  const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}))
+  const h=d.getHours()+d.getMinutes()/60
+  if(h>=4&&h<9.5) return "PM"
+  if(h>=9.5&&h<16) return "RTH"
+  if(h>=16&&h<=20) return "AH"
+  return "CLOSED"
 }
 
-/* ================= SCAN ================= */
+function allowed(){
+  const s=session()
+  if(s==="PM") return pre.checked
+  if(s==="RTH") return true
+  if(s==="AH") return post.checked
+  return false
+}
+
 async function scan(){
-  const s=currentSession();
-  sessionLabel.innerText=s;
-
-  if(!sessionAllowed()){
-    rows.innerHTML=`<tr><td colspan="9" class="small">Session mismatch — ${s}</td></tr>`;
-    return;
+  sessionEl.textContent=session()
+  if(!allowed()){
+    rows.innerHTML=`<tr><td colspan=7 class=small>Session blocked</td></tr>`
+    return
   }
 
-  const minP = +minPrice.value;
-  const maxP = +maxPrice.value;
-  const maxRisk = +riskPerTrade.value;
+  const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value
 
   try{
-    const res=await fetch(
-      "https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers"
-    );
-    const list=(await res.json())?.finance?.result?.[0]?.quotes||[];
+    const r=await fetch("https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers")
+    const q=(await r.json()).finance.result[0].quotes
+    rows.innerHTML=""
 
-    rows.innerHTML="";
-    let fired=false;
+    q.forEach(t=>{
+      const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
+      if(!s||!p||p<min||p>max) return
 
-    list.forEach(t=>{
-      const sym=t.symbol, price=t.regularMarketPrice, vol=t.regularMarketVolume||0;
-      if(!sym||!price) return;
-      if(price<minP||price>maxP) return;
+      const prev=hod[s]||0
+      hod[s]=Math.max(prev,p)
+      const stop=(prev||p)*0.97
+      const risk=p-stop
+      if(risk<=0) return
 
-      const prevH=hod[sym]||0, prevV=lastVol[sym]||0;
-      hod[sym]=Math.max(prevH,price);
-      lastVol[sym]=vol;
+      const sh=Math.floor(riskMax/risk)
+      const rr=((risk*2)/risk).toFixed(1)
 
-      base[sym]=price>prevH?(prevH||price):(base[sym]||price);
-
-      const breakout=price>prevH;
-      const volAccel=vol>prevV*1.25;
-      const strongVol=vol>=1500000;
-
-      const stop=+(base[sym]*0.97).toFixed(2);
-      const riskPerShare=+(price-stop).toFixed(2);
-      if(riskPerShare<=0) return;
-
-      const shares=Math.floor(maxRisk/riskPerShare);
-      const dollarRisk=+(shares*riskPerShare).toFixed(2);
-      const target=+(price+riskPerShare*2).toFixed(2);
-      const reward=+((target-price)*shares).toFixed(2);
-      const rr=reward>0?+(reward/dollarRisk).toFixed(2):0;
-
-      let grade="NO", cls="notrade";
-
-      if(breakout&&volAccel&&strongVol&&rr>=2&&shares>=1){
-        grade="A+";
-        cls="aplus";
-      } else if(breakout||vol>=500000){
-        grade="WATCH";
-        cls="watch";
-      }
+      let g="NO",c="notrade"
+      if(p>prev&&v>1e6&&sh>=1){g="A+";c="aplus"}
+      else if(p>prev||v>5e5){g="WATCH";c="watch"}
 
       rows.innerHTML+=`
-        <tr class="${cls}">
-          <td><a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">${sym}</a></td>
-          <td>$${price.toFixed(2)}</td>
-          <td>${(vol/1e6).toFixed(2)}M</td>
-          <td>$${stop}</td>
-          <td>$${target}</td>
-          <td>${rr}</td>
-          <td>${shares}</td>
-          <td>$${dollarRisk}</td>
-          <td class="tag ${grade==='A+'?'aplus':grade==='WATCH'?'watch':'no'}">${grade}</td>
-        </tr>
-      `;
-
-      if(grade==="A+"&&!alerted[sym]){
-        alerted[sym]=true;
-        fired=true;
-      }
-    });
+        <tr class=${c}>
+          <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
+          <td>$${p.toFixed(2)}</td>
+          <td>${(v/1e6).toFixed(2)}M</td>
+          <td>$${stop.toFixed(2)}</td>
+          <td class=${rr>=2?"good":"bad"}>${rr}</td>
+          <td>${sh}</td>
+          <td>${g}</td>
+        </tr>`
+      if(g==="A+"&&!alerted[s]&&sound){beep.play();alerted[s]=1}
+    })
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan="9" class="small">No qualified setups</td></tr>`;
-
-    if(fired&&soundOn){
-      beep.play().catch(()=>{});
-      navigator.vibrate?.([200,100,200]);
-    }
+      rows.innerHTML=`<tr><td colspan=7 class=small>No setups</td></tr>`
 
   }catch{
-    rows.innerHTML=`<tr><td colspan="9" class="small">Yahoo feed unavailable</td></tr>`;
+    rows.innerHTML=`<tr><td colspan=7 class=small>Feed error</td></tr>`
   }
 }
 
-/* ================= AUTO ================= */
-scan();
-setInterval(scan,15000);
+scan()
+setInterval(scan,15000)
 </script>
+</body>
+</html>
