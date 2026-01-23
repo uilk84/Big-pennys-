@@ -71,6 +71,25 @@ pm.onchange = ()=>{
   location.reload();
 };
 
+/* ---------- DATE LOGIC (CRITICAL FIX) ---------- */
+function getPolygonDate(){
+  const now = new Date();
+  const et = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/New_York" })
+  );
+
+  const marketOpen =
+    et.getHours() > 9 ||
+    (et.getHours() === 9 && et.getMinutes() >= 30);
+
+  const d = new Date(et);
+  if(!marketOpen){
+    d.setDate(d.getDate() - 1); // premarket → yesterday
+  }
+
+  return d.toISOString().split('T')[0];
+}
+
 /* ---------- MAIN LOAD ---------- */
 async function load(){
   if(!inTradeWindow()){
@@ -79,57 +98,62 @@ async function load(){
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const dateStr = getPolygonDate();
 
-  const r = await fetch(
-    `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${today}?adjusted=true&apiKey=${API_KEY}`
-  );
+  try{
+    const r = await fetch(
+      `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${dateStr}?adjusted=true&apiKey=${API_KEY}`
+    );
+    const d = await r.json();
 
-  const d = await r.json();
+    if(!d.results || !d.results.length){
+      rows.innerHTML =
+        '<tr><td colspan="5">No movers right now</td></tr>';
+      return;
+    }
 
-  if(!d.results){
+    const stocks = d.results
+      .filter(x =>
+        x.c >= 0.3 &&
+        x.c <= 5 &&
+        ((x.c - x.o) / x.o) * 100 >= 2
+      )
+      .map(x=>{
+        const o = {
+          sym: x.T,
+          p: x.c,
+          c: ((x.c - x.o) / x.o) * 100,
+          v: x.v,
+          hod: x.h,
+          vs: x.v / 250000
+        };
+        o.score = score(o);
+        return o;
+      })
+      .filter(x => x.v >= 250000 && x.score >= 55)
+      .sort((a,b)=>b.score-a.score)
+      .slice(0,20);
+
+    rows.innerHTML = stocks.length
+      ? stocks.map(x=>`
+          <tr>
+            <td><b>${x.sym}</b></td>
+            <td>$${x.p.toFixed(2)}</td>
+            <td>${x.score}</td>
+            <td>${fmt(x.v)}</td>
+            <td class="${x.score>=70?'badgeA':'badgeW'}">
+              ${x.score>=70?'A+':'WATCH'}
+            </td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="5">No movers right now</td></tr>';
+
+    checkAlerts(stocks);
+
+  }catch(e){
     rows.innerHTML =
-      '<tr><td colspan="5">No data returned</td></tr>';
-    return;
+      '<tr><td colspan="5">Data error</td></tr>';
   }
-
-  const stocks = d.results
-    .filter(x =>
-      x.c >= 0.3 &&
-      x.c <= 5 &&
-      ((x.c - x.o) / x.o) * 100 >= 2
-    )
-    .map(x=>{
-      const o = {
-        sym: x.T,
-        p: x.c,
-        c: ((x.c - x.o) / x.o) * 100,
-        v: x.v,
-        hod: x.h,
-        vs: x.v / 250000
-      };
-      o.score = score(o);
-      return o;
-    })
-    .filter(x => x.v >= 250000 && x.score >= 55)
-    .sort((a,b)=>b.score-a.score)
-    .slice(0,20);
-
-  rows.innerHTML = stocks.length
-    ? stocks.map(x=>`
-        <tr>
-          <td><b>${x.sym}</b></td>
-          <td>$${x.p.toFixed(2)}</td>
-          <td>${x.score}</td>
-          <td>${fmt(x.v)}</td>
-          <td class="${x.score>=70?'badgeA':'badgeW'}">
-            ${x.score>=70?'A+':'WATCH'}
-          </td>
-        </tr>
-      `).join('')
-    : '<tr><td colspan="5">No movers right now</td></tr>';
-
-  checkAlerts(stocks);
 }
 
 load();
