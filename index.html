@@ -90,8 +90,13 @@ soundBtn.onclick = () => {
   soundBtn.innerText = soundOn ? "🔔 Sound: ON" : "🔕 Sound: OFF";
 };
 
+/* Session logic (simple + reliable) */
 function inSession() {
-  const h = new Date().getHours();
+  const d = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/New_York" })
+  );
+  const h = d.getHours() + d.getMinutes() / 60;
+
   if (h >= 4 && h < 9.5) return document.getElementById("pre").checked;
   if (h >= 9.5 && h < 16) return true;
   if (h >= 16 && h <= 20) return document.getElementById("post").checked;
@@ -99,14 +104,19 @@ function inSession() {
 }
 
 async function scan() {
-  if (!inSession()) return;
+  if (!inSession()) {
+    rows.innerHTML =
+      `<tr><td colspan="4" class="small">Outside selected session</td></tr>`;
+    return;
+  }
 
   try {
     const res = await fetch(
       "https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers"
     );
+
     const data = await res.json();
-    const list = data.finance.result[0].quotes;
+    const list = data?.finance?.result?.[0]?.quotes || [];
 
     rows.innerHTML = "";
     let fired = false;
@@ -126,9 +136,9 @@ async function scan() {
       hod[sym] = Math.max(prevHod, price);
       lastVol[sym] = vol;
 
-      const isBreakout = price > prevHod && vol > prevVol * 1.25;
+      const breakout = price > prevHod && vol > prevVol * 1.25;
 
-      if (isBreakout && !alerted[sym]) {
+      if (breakout && !alerted[sym]) {
         alerted[sym] = true;
         fired = true;
 
@@ -140,7 +150,7 @@ async function scan() {
                target="_blank">${sym}</a>
           </td>
           <td>$${price.toFixed(2)}</td>
-          <td>${(vol/1e6).toFixed(2)}M</td>
+          <td>${(vol / 1e6).toFixed(2)}M</td>
           <td>BREAKOUT</td>
         `;
         rows.appendChild(tr);
@@ -159,10 +169,11 @@ async function scan() {
 
   } catch (e) {
     rows.innerHTML =
-      `<tr><td colspan="4" class="small">Feed error</td></tr>`;
+      `<tr><td colspan="4" class="small">Yahoo feed unavailable</td></tr>`;
   }
 }
 
+scan();
 setInterval(scan, 15000);
 </script>
 </body>
