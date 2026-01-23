@@ -1,117 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>PennyS Scanner</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-<style>
-body{
-  margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-  background:radial-gradient(circle at top,#0b1a2b,#02040a);
-  color:#e5e7eb;
-}
-.container{padding:20px}
-h1{margin-bottom:12px}
-.controls{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:center;
-  margin-bottom:10px
-}
-button{
-  background:#1f2937;
-  color:#fff;
-  border:none;
-  padding:8px 12px;
-  border-radius:10px;
-  font-size:13px
-}
-input{
-  width:70px;
-  padding:6px;
-  border-radius:8px;
-  border:none
-}
-.small{opacity:.65;font-size:12px;margin-bottom:8px}
-table{width:100%;border-collapse:collapse}
-th,td{padding:8px;border-bottom:1px solid #1f2937;text-align:left}
-th{opacity:.7}
-tr.aplus{background:rgba(34,197,94,.25)}
-tr.watch{background:rgba(234,179,8,.2)}
-tr.notrade{opacity:.45}
-a{color:#93c5fd;text-decoration:none;font-weight:600}
-.tag{font-weight:800}
-.tag.aplus{color:#22c55e}
-.tag.watch{color:#eab308}
-.tag.no{color:#ef4444}
-.goodrr{color:#22c55e;font-weight:700}
-.badrr{color:#ef4444;font-weight:700}
-</style>
-</head>
-
-<body>
-<div class="container">
-  <h1>PennyS Scanner</h1>
-
-  <div class="controls">
-    <button id="soundBtn">🔔 Sound: ON</button>
-
-    <label><input type="checkbox" id="pre"> PM</label>
-    <label><input type="checkbox" id="post"> AH</label>
-
-    <button onclick="setPreset('lotto')">🎰 Lotto</button>
-    <button onclick="setPreset('scalp')">⚡ Scalp</button>
-    <button onclick="setPreset('momentum')">🚀 Momentum</button>
-
-    <label>Min $
-      <input id="minPrice" type="number" step="0.01" value="0.10">
-    </label>
-    <label>Max $
-      <input id="maxPrice" type="number" step="0.01" value="10.00">
-    </label>
-  </div>
-
-  <div class="small">Session: <span id="sessionLabel"></span></div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Sym</th>
-        <th>Price</th>
-        <th>Vol</th>
-        <th>Stop</th>
-        <th>Target</th>
-        <th>R:R</th>
-        <th>Grade</th>
-      </tr>
-    </thead>
-    <tbody id="rows">
-      <tr><td colspan="7" class="small">Waiting for scan…</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<audio id="beep">
-  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
-
 <script>
-const rows=document.getElementById("rows");
-const beep=document.getElementById("beep");
-const soundBtn=document.getElementById("soundBtn");
-const sessionLabel=document.getElementById("sessionLabel");
+/* ================= DOM ================= */
+const rows = document.getElementById("rows");
+const beep = document.getElementById("beep");
+const soundBtn = document.getElementById("soundBtn");
+const sessionLabel = document.getElementById("sessionLabel");
 
-let soundOn=true;
-let hod={}, lastVol={}, base={}, alerted={};
+/* ================= STATE ================= */
+let soundOn = true;
+let hod = {}, lastVol = {}, base = {}, alerted = {};
 
-soundBtn.onclick=()=>{
-  soundOn=!soundOn;
-  soundBtn.innerText=soundOn?"🔔 Sound: ON":"🔕 Sound: OFF";
+/* ================= SOUND ================= */
+soundBtn.onclick = () => {
+  soundOn = !soundOn;
+  soundBtn.innerText = soundOn ? "🔔 Sound: ON" : "🔕 Sound: OFF";
 };
 
+/* ================= PRESETS ================= */
 function setPreset(type){
   if(type==="lotto"){minPrice.value=0.10;maxPrice.value=1.00;}
   if(type==="scalp"){minPrice.value=0.30;maxPrice.value=3.00;}
@@ -119,6 +23,7 @@ function setPreset(type){
   scan();
 }
 
+/* ================= SESSION ================= */
 function currentSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
   const h=d.getHours()+d.getMinutes()/60;
@@ -127,7 +32,6 @@ function currentSession(){
   if(h>=16&&h<=20) return "POST";
   return "CLOSED";
 }
-
 function sessionAllowed(){
   const s=currentSession();
   if(s==="PRE") return pre.checked;
@@ -136,14 +40,19 @@ function sessionAllowed(){
   return false;
 }
 
+/* ================= SCAN ================= */
 async function scan(){
   const s=currentSession();
   sessionLabel.innerText=s;
 
   if(!sessionAllowed()){
-    rows.innerHTML=`<tr><td colspan="7" class="small">Session mismatch — ${s}</td></tr>`;
+    rows.innerHTML=`<tr><td colspan="9" class="small">Session mismatch — ${s}</td></tr>`;
     return;
   }
+
+  const minP = +minPrice.value;
+  const maxP = +maxPrice.value;
+  const maxRisk = +riskPerTrade.value;
 
   try{
     const res=await fetch(
@@ -155,22 +64,39 @@ async function scan(){
     let fired=false;
 
     list.forEach(t=>{
-      const price=t.regularMarketPrice, vol=t.regularMarketVolume||0, sym=t.symbol;
+      const sym=t.symbol, price=t.regularMarketPrice, vol=t.regularMarketVolume||0;
       if(!sym||!price) return;
-      if(price<+minPrice.value||price>+maxPrice.value) return;
+      if(price<minP||price>maxP) return;
 
       const prevH=hod[sym]||0, prevV=lastVol[sym]||0;
-      hod[sym]=Math.max(prevH,price); lastVol[sym]=vol;
-      base[sym]=price>prevH?prevH||price:base[sym]||price;
+      hod[sym]=Math.max(prevH,price);
+      lastVol[sym]=vol;
 
-      const stop=(base[sym]*0.97).toFixed(2);
-      const risk=price-stop;
-      const target=(price+risk*2).toFixed(2);
-      const rr=risk>0?((target-price)/risk).toFixed(2):0;
+      base[sym]=price>prevH?(prevH||price):(base[sym]||price);
+
+      const breakout=price>prevH;
+      const volAccel=vol>prevV*1.25;
+      const strongVol=vol>=1500000;
+
+      const stop=+(base[sym]*0.97).toFixed(2);
+      const riskPerShare=+(price-stop).toFixed(2);
+      if(riskPerShare<=0) return;
+
+      const shares=Math.floor(maxRisk/riskPerShare);
+      const dollarRisk=+(shares*riskPerShare).toFixed(2);
+      const target=+(price+riskPerShare*2).toFixed(2);
+      const reward=+((target-price)*shares).toFixed(2);
+      const rr=reward>0?+(reward/dollarRisk).toFixed(2):0;
 
       let grade="NO", cls="notrade";
-      if(price>prevH&&vol>prevV*1.25&&vol>=1500000&&rr>=2){grade="A+";cls="aplus";}
-      else if(price>prevH||vol>=500000){grade="WATCH";cls="watch";}
+
+      if(breakout&&volAccel&&strongVol&&rr>=2&&shares>=1){
+        grade="A+";
+        cls="aplus";
+      } else if(breakout||vol>=500000){
+        grade="WATCH";
+        cls="watch";
+      }
 
       rows.innerHTML+=`
         <tr class="${cls}">
@@ -179,26 +105,33 @@ async function scan(){
           <td>${(vol/1e6).toFixed(2)}M</td>
           <td>$${stop}</td>
           <td>$${target}</td>
-          <td class="${rr>=2?'goodrr':'badrr'}">${rr}</td>
+          <td>${rr}</td>
+          <td>${shares}</td>
+          <td>$${dollarRisk}</td>
           <td class="tag ${grade==='A+'?'aplus':grade==='WATCH'?'watch':'no'}">${grade}</td>
         </tr>
       `;
 
-      if(grade==="A+"&&!alerted[sym]){alerted[sym]=true;fired=true;}
+      if(grade==="A+"&&!alerted[sym]){
+        alerted[sym]=true;
+        fired=true;
+      }
     });
 
     if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan="7" class="small">No qualified setups</td></tr>`;
+      rows.innerHTML=`<tr><td colspan="9" class="small">No qualified setups</td></tr>`;
 
-    if(fired&&soundOn){beep.play().catch(()=>{});navigator.vibrate?.([200,100,200]);}
+    if(fired&&soundOn){
+      beep.play().catch(()=>{});
+      navigator.vibrate?.([200,100,200]);
+    }
 
   }catch{
-    rows.innerHTML=`<tr><td colspan="7" class="small">Yahoo feed unavailable</td></tr>`;
+    rows.innerHTML=`<tr><td colspan="9" class="small">Yahoo feed unavailable</td></tr>`;
   }
 }
 
+/* ================= AUTO ================= */
 scan();
 setInterval(scan,15000);
 </script>
-</body>
-</html>
