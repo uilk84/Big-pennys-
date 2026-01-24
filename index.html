@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – Leader Mode</title>
+<title>PennyS Scanner – Press Release Mode</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -21,16 +21,16 @@ th{opacity:.7;text-align:left}
 .ultrafloat{color:#38bdf8;font-weight:700}
 .good{color:#22c55e;font-weight:700}
 .bad{color:#ef4444;font-weight:700}
+.news{font-size:11px}
+.pr{color:#38bdf8;font-weight:700}
 .small{opacity:.6;font-size:12px}
 a{color:#93c5fd;text-decoration:none}
-.news{font-size:11px;opacity:.85}
-.tag{font-weight:800}
 </style>
 </head>
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (Leader Mode)</h2>
+  <h2>PennyS Scanner (Press Release Filter)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -87,12 +87,14 @@ let sound=true;
 let pmh={}, lastPrice={}, lastVol={}, alerted={};
 
 const floatMap={ SMOVE:12000000, DRCT:18000000 };
-
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
 let feedIndex=0;
 
 const newsCache={};
 const NEWS_TTL=5*60*1000;
+
+// press release sources
+const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
@@ -121,13 +123,17 @@ function allowed(){
 
 async function getNews(sym){
   const now=Date.now()
-  if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym].title
+  if(newsCache[sym] && (now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
+
   try{
     const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
     const j=await r.json()
-    if(j.news&&j.news.length){
-      newsCache[sym]={title:j.news[0].title,time:now}
-      return j.news[0].title
+    if(j.news && j.news.length){
+      const n=j.news[0]
+      const title=n.title.toLowerCase()
+      const isPR=PR_SOURCES.some(src=>title.includes(src))
+      newsCache[sym]={title:n.title,isPR:isPR,time:now}
+      return newsCache[sym]
     }
   }catch{}
   return null
@@ -178,7 +184,8 @@ async function scan(){
         else floatTag="HIGH"
       }
 
-      const news=await getNews(s)
+      const newsObj=await getNews(s)
+      const hasPR=newsObj && newsObj.isPR
 
       const stop=hasPMH?pmh[s]*0.97:p*0.97
       const risk=p-stop
@@ -188,8 +195,8 @@ async function scan(){
       const rr=((risk*2)/risk).toFixed(1)
 
       let sig="WATCH",cls="watch"
-      if(retestHold&&volAccel&&fl&&fl<30000000&&news&&sh>=1){
-        sig="A+ PMH + NEWS"
+      if(retestHold && volAccel && fl && fl<30000000 && hasPR && sh>=1){
+        sig="A+ PMH + PR"
         cls="aplus"
       }
 
@@ -205,14 +212,14 @@ async function scan(){
           <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
           <td>${floatTag}</td>
           <td>${(v/1e6).toFixed(2)}M</td>
-          <td class="news">${news||"—"}</td>
+          <td class="news ${hasPR?'pr':''}">${newsObj?newsObj.title:"—"}</td>
           <td>$${stop.toFixed(2)}</td>
           <td class=${rr>=2?"good":"bad"}>${rr}</td>
           <td>${sh}</td>
-          <td class="tag">${sig}</td>
+          <td>${sig}</td>
         </tr>`
 
-      if(sig==="A+ PMH + NEWS"&&!alerted[s]&&sound){
+      if(sig==="A+ PMH + PR" && !alerted[s] && sound){
         beep.play()
         navigator.vibrate?.([200,100,200])
         alerted[s]=1
