@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – Press Release Mode</title>
+<title>PennyS Scanner – Wake Lock Pro</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -30,7 +30,7 @@ a{color:#93c5fd;text-decoration:none}
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (Press Release Filter)</h2>
+  <h2>PennyS Scanner (Wake Lock Pro)</h2>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
@@ -77,6 +77,24 @@ a{color:#93c5fd;text-decoration:none}
 </audio>
 
 <script>
+/* ================= WAKE LOCK ================= */
+let wakeLock = null;
+async function requestWakeLock(){
+  try{
+    wakeLock = await navigator.wakeLock.request("screen");
+    console.log("Wake Lock active");
+  }catch(err){
+    console.log("Wake Lock failed:", err);
+  }
+}
+requestWakeLock();
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"){
+    requestWakeLock();
+  }
+});
+
+/* ================= DOM ================= */
 const rows=document.getElementById("rows");
 const beep=document.getElementById("beep");
 const soundBtn=document.getElementById("soundBtn");
@@ -86,14 +104,16 @@ const feedLabel=document.getElementById("feedLabel");
 let sound=true;
 let pmh={}, lastPrice={}, lastVol={}, alerted={};
 
+/* FLOAT MAP */
 const floatMap={ SMOVE:12000000, DRCT:18000000 };
+
+/* FEEDS */
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
 let feedIndex=0;
 
+/* NEWS CACHE */
 const newsCache={};
 const NEWS_TTL=5*60*1000;
-
-// press release sources
 const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
 
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
@@ -121,14 +141,15 @@ function allowed(){
   return false
 }
 
+/* NEWS LOOKUP */
 async function getNews(sym){
   const now=Date.now()
-  if(newsCache[sym] && (now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
+  if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
 
   try{
     const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
     const j=await r.json()
-    if(j.news && j.news.length){
+    if(j.news&&j.news.length){
       const n=j.news[0]
       const title=n.title.toLowerCase()
       const isPR=PR_SOURCES.some(src=>title.includes(src))
@@ -185,7 +206,7 @@ async function scan(){
       }
 
       const newsObj=await getNews(s)
-      const hasPR=newsObj && newsObj.isPR
+      const hasPR=newsObj&&newsObj.isPR
 
       const stop=hasPMH?pmh[s]*0.97:p*0.97
       const risk=p-stop
@@ -195,7 +216,7 @@ async function scan(){
       const rr=((risk*2)/risk).toFixed(1)
 
       let sig="WATCH",cls="watch"
-      if(retestHold && volAccel && fl && fl<30000000 && hasPR && sh>=1){
+      if(retestHold&&volAccel&&fl&&fl<30000000&&hasPR&&sh>=1){
         sig="A+ PMH + PR"
         cls="aplus"
       }
@@ -219,7 +240,7 @@ async function scan(){
           <td>${sig}</td>
         </tr>`
 
-      if(sig==="A+ PMH + PR" && !alerted[s] && sound){
+      if(sig==="A+ PMH + PR"&&!alerted[s]&&sound){
         beep.play()
         navigator.vibrate?.([200,100,200])
         alerted[s]=1
