@@ -1,269 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>PennyS Scanner – Auto Feed</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PennyS Scanner — Filtered / Leader</title>
 <style>
-body{margin:0;font-family:-apple-system;background:#061018;color:#f1f5f9}
-h1{margin:10px}
-.controls{display:flex;flex-wrap:wrap;gap:8px;padding:10px}
-button,input,label{background:#0f1724;color:#fff;border:none;border-radius:10px;padding:8px 10px}
-.small{font-size:13px;opacity:.8;padding:0 10px}
-
+:root{
+  --bg:#061018;--panel:#0f1724;--muted:#9ca3af;--text:#e6eef8;--accent:#38bdf8;
+  --good:#22c55e;--bad:#ef4444;--card:#071826;--card-border:rgba(255,255,255,0.03);
+  --radius:12px;
+}
+html,body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--text)}
+.container{padding:14px}
+h1{margin:0 0 10px;font-size:1.6rem}
+.controls{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;align-items:center}
+.controls button,input,label,select{background:var(--panel);color:var(--text);border:none;padding:8px 10px;border-radius:10px}
+.small{color:var(--muted);font-size:13px;margin-bottom:10px}
+.leaderBanner{background:linear-gradient(90deg,rgba(168,85,247,0.12),rgba(56,189,248,0.06));padding:10px;border-radius:10px;margin:10px 0}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left}
-th{opacity:.8}
-.aplus{background:rgba(34,197,94,.25)}
-.bsetup{background:rgba(234,179,8,.18)}
-.skip{opacity:.4}
-.good{color:#22c55e;font-weight:700}
-.bad{color:#ef4444;font-weight:700}
-
-/* FIXED NEWS COLOR */
-.news a{
-  color:#60a5fa;
-  font-weight:600;
-  text-decoration:none;
-}
-.news a:hover{color:#93c5fd}
-
-#cards{display:none;padding:10px}
-.card{
- background:#0f1724;
- border-radius:12px;
- padding:12px;
- margin-bottom:12px;
- box-shadow:0 0 6px rgba(0,0,0,.4)
-}
-.sym{font-weight:800;color:#38bdf8;font-size:18px}
-.signal{font-weight:700}
-
-@media(max-width:800px){
- table{display:none}
- #cards{display:block}
+th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);text-align:left}
+th{color:var(--muted)}
+.aplus{background:rgba(34,197,94,0.08)}
+.bsetup{background:rgba(234,179,8,0.06)}
+.news a{color:#7cc7ff;font-weight:600;text-decoration:none}
+#cards{display:none;margin-top:10px}
+.card{background:var(--card);padding:12px;border-radius:12px;margin-bottom:10px;border:1px solid var(--card-border)}
+.sym{font-weight:800;color:var(--accent);font-size:1.05rem}
+.signal{font-weight:800}
+.controls .toggle{display:inline-flex;align-items:center;gap:6px}
+@media(max-width:820px){
+  table{display:none}
+  #cards{display:block}
 }
 </style>
 </head>
-
 <body>
-<h1>PennyS Scanner</h1>
+<div class="container">
+  <h1>PennyS Scanner</h1>
 
-<div class="controls">
-<button id="soundBtn">🔔 ON</button>
-<label><input type="checkbox" id="pre"> PM</label>
-<label><input type="checkbox" id="post"> AH</label>
+  <div class="controls">
+    <button id="soundBtn">🔔 ON</button>
+    <div class="toggle"><input id="pre" type="checkbox"><label for="pre">PM</label></div>
+    <div class="toggle"><input id="post" type="checkbox"><label for="post">AH</label></div>
 
-<button onclick="preset('lotto')">🎰</button>
-<button onclick="preset('scalp')">⚡</button>
-<button onclick="preset('momentum')">🚀</button>
+    <button onclick="preset('lotto')">🎰 Lotto</button>
+    <button onclick="preset('scalp')">⚡ Scalp</button>
+    <button onclick="preset('momentum')">🚀 Momentum</button>
 
-<label>Min <input id="minPrice" type="number" value="1"></label>
-<label>Max <input id="maxPrice" type="number" value="10"></label>
-<label>Risk <input id="riskPerTrade" type="number" value="100"></label>
+    <label>Min <input id="minPrice" type="number" value="1" style="width:70px"></label>
+    <label>Max <input id="maxPrice" type="number" value="10" style="width:70px"></label>
+    <label>Risk <input id="riskPerTrade" type="number" value="100" style="width:80px"></label>
+
+    <label>MinVol <input id="minVol" type="number" value="200000" style="width:110px"></label>
+
+    <div class="toggle">
+      <input id="showAll" type="checkbox"><label for="showAll">Show All</label>
+    </div>
+    <div class="toggle">
+      <input id="prOnly" type="checkbox"><label for="prOnly">PR Only</label>
+    </div>
+  </div>
+
+  <div class="small">Session: <span id="session">—</span> | Feed: <span id="feedLabel">—</span> | Next feed in <span id="timer">20</span>s</div>
+
+  <div id="leader" class="leaderBanner" style="display:none"></div>
+
+  <table aria-live="polite"><thead>
+    <tr><th>Sym</th><th>Price</th><th>PMH</th><th>Vol</th><th>News</th><th>Score</th><th>Signal</th></tr>
+  </thead>
+  <tbody id="rows"><tr><td colspan="7" class="small">Waiting…</td></tr></tbody></table>
+
+  <div id="cards" aria-live="polite"></div>
+
+  <audio id="beep"><source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 </div>
-
-<div class="small">
-Session: <span id="session"></span> | Feed: <span id="feedLabel"></span> | Next feed in <span id="timer">20</span>s
-</div>
-
-<table>
-<thead>
-<tr>
-<th>Sym</th><th>Price</th><th>PMH</th><th>Vol</th><th>News</th><th>Score</th><th>Signal</th>
-</tr>
-</thead>
-<tbody id="rows"><tr><td colspan="7">Waiting…</td></tr></tbody>
-</table>
-
-<div id="cards"></div>
-
-<audio id="beep">
-<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
 
 <script>
-/* ===== Wake Lock ===== */
+/* ========== CONFIG & UTILS ========== */
 let wakeLock=null;
-async function requestWakeLock(){
- try{ if("wakeLock" in navigator) wakeLock=await navigator.wakeLock.request("screen"); }catch(e){}
-}
+async function requestWakeLock(){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} }
 requestWakeLock();
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") requestWakeLock(); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') requestWakeLock(); });
 
-const rows=document.getElementById("rows");
-const cards=document.getElementById("cards");
-const beep=document.getElementById("beep");
-const soundBtn=document.getElementById("soundBtn");
-const sessionEl=document.getElementById("session");
-const feedLabel=document.getElementById("feedLabel");
-const timerEl=document.getElementById("timer");
+const rows = document.getElementById('rows');
+const cards = document.getElementById('cards');
+const leaderEl = document.getElementById('leader');
+const beep = document.getElementById('beep');
+const soundBtn = document.getElementById('soundBtn');
+const sessionEl = document.getElementById('session');
+const feedLabel = document.getElementById('feedLabel');
+const timerEl = document.getElementById('timer');
 
-let sound=true;
-let pmh={}, lastPrice={}, lastVol={}, alerted={}, newsCache={};
-let cooldownUntil=0;
+let sound = true;
+soundBtn.onclick = ()=>{ sound = !sound; soundBtn.textContent = sound ? '🔔 ON' : '🔕 OFF'; }
 
-/* Daily reset */
-let lastTradingDate=localStorage.getItem("lastTradingDate");
+let pmh = {}, lastPrice={}, lastVol={}, alerted={}, newsCache={};
+let cooldownUntil = 0;
+
+/* daily reset */
+let lastTradingDate = localStorage.getItem('lastTradingDate');
 function checkNewDay(){
- const today=new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
- if(lastTradingDate!==today){
-  pmh={}; lastPrice={}; lastVol={}; alerted={}; newsCache={};
-  lastTradingDate=today;
-  localStorage.setItem("lastTradingDate",today);
- }
+  const today = new Date().toLocaleDateString('en-US',{timeZone:'America/New_York'});
+  if(lastTradingDate !== today){
+    pmh={}; lastPrice={}; lastVol={}; alerted={}; newsCache={};
+    lastTradingDate = today; localStorage.setItem('lastTradingDate', today);
+    console.log('New trading day reset');
+  }
 }
 
-/* Feeds (AUTO ROTATE) */
-const feeds=["day_gainers","most_actives","small_cap_gainers"];
-let feedIndex=0;
+/* feeds & rotation */
+const feeds = ['day_gainers','most_actives','small_cap_gainers'];
+let feedIndex = 0;
+let timer = 20; setInterval(()=>{ timer--; if(timer<=0) timer=20; timerEl.textContent = timer; },1000);
 
-/* News */
-const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
-const NEWS_TTL=5*60*1000;
+/* news sources */
+const PR_SOURCES = ['globenewswire','prnewswire','businesswire','accesswire'];
+const NEWS_TTL = 5*60*1000;
 
-soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
-
-function preset(p){
- if(p==="lotto"){minPrice.value=.1;maxPrice.value=1}
- if(p==="scalp"){minPrice.value=.3;maxPrice.value=3}
- if(p==="momentum"){minPrice.value=1;maxPrice.value=10}
- scan();
+/* session helpers */
+function getSession(){
+  const d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
+  const h = d.getHours() + d.getMinutes()/60;
+  if(h>=4 && h<9.5) return 'PM';
+  if(h>=9.5 && h<16) return 'RTH';
+  if(h>=16 && h<=20) return 'AH';
+  return 'CLOSED';
 }
+function allowed(){ const s=getSession(); if(s==='PM') return pre.checked; if(s==='RTH') return true; if(s==='AH') return post.checked; return false; }
 
-function session(){
- const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}))
- const h=d.getHours()+d.getMinutes()/60
- if(h>=4&&h<9.5) return "PM"
- if(h>=9.5&&h<16) return "RTH"
- if(h>=16&&h<=20) return "AH"
- return "CLOSED"
-}
-function allowed(){
- const s=session()
- if(s==="PM") return pre.checked
- if(s==="RTH") return true
- if(s==="AH") return post.checked
- return false
-}
-
+/* news fetch with cache */
 async function getNews(sym){
- const now=Date.now();
- if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
- try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
-  const j=await r.json()
-  if(j.news&&j.news.length){
-   const n=j.news[0]
-   const isPR=PR_SOURCES.some(src=>n.title.toLowerCase().includes(src))
-   newsCache[sym]={title:n.title,url:n.link,isPR:isPR,time:now}
-   return newsCache[sym]
-  }
- }catch{}
- return null
+  const now = Date.now();
+  if(newsCache[sym] && (now - newsCache[sym].time) < NEWS_TTL) return newsCache[sym];
+  try{
+    const r = await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`);
+    const j = await r.json();
+    if(j.news && j.news.length){
+      const n = j.news[0];
+      const title = n.title || '';
+      const link = n.link || ('https://finance.yahoo.com/quote/'+sym);
+      const isPR = PR_SOURCES.some(src => title.toLowerCase().includes(src));
+      newsCache[sym] = { title, url: link, isPR, time: now };
+      return newsCache[sym];
+    }
+  }catch(e){}
+  return null;
 }
 
-/* Timer */
-let t=20;
-setInterval(()=>{
- t--; if(t<=0) t=20;
- timerEl.textContent=t;
-},1000);
+/* helper render */
+function renderRow(params){
+  const {s,p,pmhVal,vol,newsObj,score,sig,cls} = params;
+  // table row
+  const tr = document.createElement('tr'); tr.className = cls;
+  tr.innerHTML = `<td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
+                  <td>$${Number(p).toFixed(2)}</td>
+                  <td>${pmhVal?Number(pmhVal).toFixed(2):'-'}</td>
+                  <td>${(vol/1e6).toFixed(2)}M</td>
+                  <td class="news">${newsObj ? `<a target=_blank href="${newsObj.url}">${newsObj.title}</a>` : '—'}</td>
+                  <td>${score}</td>
+                  <td class="signal">${sig}</td>`;
+  rows.appendChild(tr);
+  // mobile card
+  const card = document.createElement('div'); card.className = 'card ' + cls;
+  card.innerHTML = `<div class="sym"><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a> $${Number(p).toFixed(2)}</div>
+                    <div style="margin-top:8px">${newsObj ? `<a target=_blank href="${newsObj.url}">${newsObj.title}</a>` : '—'}</div>
+                    <div style="margin-top:8px;color:${score>=8?'#22c55e':(score>=5?'#eab308':'#9ca3af')}">Score: ${score} | ${sig}</div>`;
+  cards.appendChild(card);
+}
 
+/* the scanner */
 async function scan(){
- checkNewDay()
- if(Date.now()<cooldownUntil) return
+  checkNewDay();
+  if(Date.now() < cooldownUntil) return;
 
- sessionEl.textContent=session()
- if(!allowed()){
-  rows.innerHTML="<tr><td colspan=7>Session blocked</td></tr>"
-  cards.innerHTML=""
-  return
- }
-
- const min=+minPrice.value||1
- const max=+maxPrice.value||10
- const riskMax=+riskPerTrade.value||100
-
- const feed=feeds[feedIndex];
- feedLabel.textContent=feed;
- feedIndex=(feedIndex+1)%feeds.length; // FORCE ROTATION
- t=20;
-
- try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${feed}`)
-  const q=(await r.json()).finance.result[0].quotes
-
-  rows.innerHTML=""
-  cards.innerHTML=""
-
-  for(const tkr of q){
-   const s=tkr.symbol
-   const p=tkr.regularMarketPrice
-   const v=tkr.regularMarketVolume||0
-
-   if(!s||!p) continue
-   if(p<min||p>max) continue
-   if(v<200000) continue
-
-   const prevV=lastVol[s]||v
-   lastVol[s]=v
-
-   if(session()==="PM") pmh[s]=Math.max(pmh[s]||0,p)
-
-   const hasPMH=pmh[s]>0
-   const volAccel=v>prevV*1.3
-   const newsObj=await getNews(s)
-   const hasPR=newsObj&&newsObj.isPR
-
-   let score=0
-   if(hasPR) score+=3
-   if(hasPMH) score+=2
-   if(volAccel) score+=2
-
-   let sig="SKIP",cls="skip"
-   if(score>=7){sig="A+ SETUP";cls="aplus"}
-   else if(score>=4){sig="B SETUP";cls="bsetup"}
-
-   rows.innerHTML+=`
-   <tr class="${cls}">
-    <td>${s}</td>
-    <td>$${p.toFixed(2)}</td>
-    <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
-    <td>${(v/1e6).toFixed(2)}M</td>
-    <td class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</td>
-    <td>${score}</td>
-    <td>${sig}</td>
-   </tr>`
-
-   cards.innerHTML+=`
-   <div class="card ${cls}">
-    <div class="sym">${s} $${p.toFixed(2)}</div>
-    <div class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</div>
-    <div>Score: ${score} | ${sig}</div>
-   </div>`
-
-   if(sig==="A+ SETUP"&&!alerted[s]&&sound){
-    beep.play()
-    navigator.vibrate?.([200,100,200])
-    alerted[s]=1
-    cooldownUntil=Date.now()+300000
-   }
+  sessionEl.textContent = getSession();
+  if(!allowed()){
+    rows.innerHTML = '<tr><td colspan="7" class="small">Session blocked</td></tr>'; cards.innerHTML=''; leaderEl.style.display='none';
+    return;
   }
 
-  if(!rows.children.length){
-   rows.innerHTML="<tr><td colspan=7>No setups</td></tr>"
-   cards.innerHTML=""
-  }
+  const min = +minPrice.value || 1;
+  const max = +maxPrice.value || 10;
+  const riskMax = +riskPerTrade.value || 100;
+  const minVol = +minVol.value || 200000;
+  const showAll = showAll.checked;
+  const prOnly = prOnly.checked;
 
- }catch{
-  rows.innerHTML="<tr><td colspan=7>Feed error</td></tr>"
- }
+  // rotate feed immediately so it never gets stuck
+  const feed = feeds[feedIndex];
+  feedLabel.textContent = feed;
+  feedIndex = (feedIndex + 1) % feeds.length;
+  timer = 20;
+
+  try{
+    const res = await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=${feed}`);
+    const j = await res.json();
+    const q = (j.finance && j.finance.result && j.finance.result[0] && j.finance.result[0].quotes) ? j.finance.result[0].quotes : [];
+    // build leaders top3 by volume
+    const sorted = [...q].sort((a,b) => (b.regularMarketVolume||0) - (a.regularMarketVolume||0));
+    const leaders = sorted.slice(0,3).map(x => x.symbol);
+    // render leader banner
+    if(leaders.length){
+      leaderEl.style.display='block';
+      leaderEl.innerHTML = `<strong>Leaders:</strong> ${leaders.join(' • ')}`;
+    } else { leaderEl.style.display='none' }
+
+    rows.innerHTML=''; cards.innerHTML='';
+
+    const rendered = [];
+
+    for(const tkr of q){
+      const s = tkr.symbol;
+      const p = tkr.regularMarketPrice;
+      const vol = tkr.regularMarketVolume || 0;
+      if(!s || !p) continue;
+      // HARD FILTERS (prevents feed dump)
+      if(p < min || p > max) continue;
+      if(vol < minVol) continue;
+
+      const prevP = lastPrice[s] || p;
+      const prevV = lastVol[s] || vol;
+      lastPrice[s] = p; lastVol[s] = vol;
+
+      if(getSession() === 'PM') pmh[s] = Math.max(pmh[s]||0, p);
+      const pmhVal = pmh[s] || null;
+      const hasPMH = !!pmhVal;
+      const brokePMH = hasPMH && p > pmhVal;
+      const retestHold = brokePMH && prevP >= pmhVal*0.99 && p >= pmhVal;
+      const volAccel = vol > prevV * 1.3;
+
+      const newsObj = await getNews(s);
+      const isPR = newsObj && newsObj.isPR;
+
+      // optional PR-only gate
+      if(prOnly && !isPR) continue;
+
+      // quality score
+      let score = 0;
+      if(isPR) score += 3;
+      if(retestHold) score += 2;
+      if(volAccel) score += 2;
+      if(leaders.includes(s)) score += 2;
+      // R:R check: simple placeholder -> encourage >=2 RR
+      const stop = hasPMH ? pmhVal*0.97 : p*0.97;
+      const risk = p - stop; if(risk <= 0) continue;
+      const rr = ((risk*2)/risk).toFixed(1);
+      if(Number(rr) >= 2) score += 1;
+
+      let sig = 'SKIP', cls = 'skip';
+      if(score >= 8){ sig = 'A+ SETUP'; cls='aplus'; }
+      else if(score >= 5){ sig = 'B SETUP'; cls='bsetup'; }
+      if(leaders.includes(s)) { /* leader visual already handled */ }
+
+      // decide whether to show
+      if(!showAll && cls === 'skip') continue;
+
+      renderRow({ s, p, pmhVal, vol, newsObj, score, sig, cls });
+      rendered.push(s);
+
+      // alert logic
+      if(sig === 'A+ SETUP' && !alerted[s] && sound){
+        beep.play(); navigator.vibrate?.([200,100,200]); alerted[s]=1;
+        cooldownUntil = Date.now() + 5*60*1000; // 5 minute cooldown
+      }
+    }
+
+    if(rendered.length === 0){
+      rows.innerHTML = '<tr><td colspan="7" class="small">No setups (adjust Min/Max/MinVol or enable Show All)</td></tr>';
+      cards.innerHTML = '';
+    }
+
+  }catch(e){
+    console.error(e);
+    rows.innerHTML = '<tr><td colspan="7" class="small">Feed error</td></tr>'; cards.innerHTML='';
+  }
 }
 
-scan()
-setInterval(scan,20000)
+/* small helpers */
+function preset(mode){
+  if(mode==='lotto'){ minPrice.value=0.1; maxPrice.value=1; minVol.value=100000 }
+  if(mode==='scalp'){ minPrice.value=0.3; maxPrice.value=3; minVol.value=150000 }
+  if(mode==='momentum'){ minPrice.value=1; maxPrice.value=50; minVol.value=300000 }
+  scan();
+}
+
+/* intervals */
+scan(); setInterval(scan,20000);
 </script>
 </body>
 </html>
