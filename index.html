@@ -1,157 +1,274 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Penny Scanner – Good v2</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Penny Scanner — Good v2 (Robust)</title>
 <style>
-body{margin:0;font-family:-apple-system;background:#061018;color:#f1f5f9}
-h1{padding:12px;margin:0}
-.controls{display:flex;flex-wrap:wrap;gap:10px;padding:10px}
-button,input,label{background:#0f1724;color:white;border:none;border-radius:10px;padding:8px 10px}
-.small{opacity:.7;padding:0 12px;font-size:13px}
-table{width:100%;border-collapse:collapse}
-th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left}
-.hot{background:rgba(34,197,94,.25)}
-.warm{background:rgba(234,179,8,.2)}
+:root{--bg:#061018;--panel:#0f1724;--muted:#9ca3af;--text:#e6eef8;--accent:#38bdf8}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--text)}
+.container{padding:14px;max-width:980px;margin:0 auto}
+h1{margin:0 0 12px;font-size:1.6rem}
+.controls{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;align-items:center}
+.controls button,input,label,select{background:var(--panel);color:var(--text);border:none;padding:8px 10px;border-radius:10px}
+.small{color:var(--muted);font-size:13px;margin-bottom:10px}
+.leaderBanner{background:linear-gradient(90deg,rgba(168,85,247,0.12),rgba(56,189,248,0.06));padding:10px;border-radius:10px;margin:10px 0;display:none}
+.progress{height:8px;background:rgba(255,255,255,0.03);border-radius:8px;overflow:hidden;margin:8px 0}
+.progress > div{height:100%;width:0;background:linear-gradient(90deg,#2dd4bf,#3b82f6);transition:width .3s ease}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);text-align:left}
+th{color:var(--muted)}
+.hot{background:rgba(34,197,94,0.08)}
+.warm{background:rgba(234,179,8,0.06)}
 .watch{opacity:.6}
 .news a{color:#7cc7ff;font-weight:600;text-decoration:none}
-#cards{display:none;padding:10px}
-.card{background:#0f1724;border-radius:12px;padding:12px;margin-bottom:10px}
-.sym{font-weight:800;color:#38bdf8;font-size:18px}
-.leader{background:#1f2937;padding:8px;border-radius:8px;margin:10px}
-@media(max-width:800px){
- table{display:none}
- #cards{display:block}
-}
+#cards{display:none;margin-top:10px}
+.card{background:var(--panel);padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.03)}
+.sym{font-weight:800;color:var(--accent);font-size:1.05rem}
+.debug{font-size:12px;color:var(--muted);margin-top:6px}
+@media(max-width:820px){ table{display:none} #cards{display:block} }
 </style>
 </head>
 <body>
+<div class="container">
+  <h1>Penny Scanner (Good v2)</h1>
 
-<h1>Penny Scanner (Good v2)</h1>
+  <div class="controls">
+    <button id="soundBtn">🔔 ON</button>
+    <label>MinVol <input id="minVol" type="number" value="100000" style="width:110px"></label>
+    <label><input id="showAll" type="checkbox" checked> Show All</label>
+    <button id="demoBtn">Use Demo Feed</button>
+  </div>
 
-<div class="controls">
-<button id="soundBtn">🔔 ON</button>
-<label>MinVol <input id="minVol" type="number" value="100000" style="width:100px"></label>
-<label><input type="checkbox" id="showAll" checked> Show All</label>
+  <div class="small">Feed: Finviz News Movers | Next scan in <span id="timer">30</span>s</div>
+  <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
+  <div id="status" class="small debug">Status: starting…</div>
+
+  <div id="leader" class="leaderBanner"></div>
+
+  <table aria-live="polite"><thead>
+    <tr><th>Symbol</th><th>Vol</th><th>News</th><th>Status</th></tr>
+  </thead>
+  <tbody id="rows"><tr><td colspan="4" class="small">Waiting…</td></tr></tbody>
+  </table>
+
+  <div id="cards" aria-live="polite"></div>
+
+  <audio id="beep"><source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 </div>
-
-<div class="small">
-Feed: Finviz News Movers | Next scan in <span id="timer">30</span>s
-</div>
-
-<div id="leader" class="leader"></div>
-
-<table>
-<thead>
-<tr><th>Symbol</th><th>Vol</th><th>News</th><th>Status</th></tr>
-</thead>
-<tbody id="rows">
-<tr><td colspan="4">Loading…</td></tr>
-</tbody>
-</table>
-
-<div id="cards"></div>
-
-<audio id="beep">
-<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
 
 <script>
-const rows=document.getElementById("rows");
-const cards=document.getElementById("cards");
-const leaderDiv=document.getElementById("leader");
-const beep=document.getElementById("beep");
-const soundBtn=document.getElementById("soundBtn");
-const timerEl=document.getElementById("timer");
+/* -------- basic UI elements -------- */
+const rows = document.getElementById('rows');
+const cards = document.getElementById('cards');
+const leaderEl = document.getElementById('leader');
+const statusEl = document.getElementById('status');
+const progressBar = document.getElementById('progressBar');
+const timerEl = document.getElementById('timer');
+const beep = document.getElementById('beep');
+
+const soundBtn = document.getElementById('soundBtn');
+const demoBtn = document.getElementById('demoBtn');
 
 let sound=true;
-soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"};
+soundBtn.onclick = ()=>{ sound=!sound; soundBtn.textContent = sound ? '🔔 ON' : '🔕 OFF' }
+demoBtn.onclick = ()=>{ useDemoFeed = true; statusEl.textContent = 'Status: forced demo feed'; scan(); }
 
-let pmh={};
-let alerted={};
+/* -------- state -------- */
+let pmh = {}, alerted = {};
+let feedTimer = 30;
+let useDemoFeed = false;
+let lastSuccessful = 0;
 
-let timer=30;
-setInterval(()=>{
- timer--;
- if(timer<=0) timer=30;
- timerEl.textContent=timer;
-},1000);
+/* -------- timer UI -------- */
+setInterval(()=>{ feedTimer--; if(feedTimer<=0) feedTimer=30; timerEl.textContent = feedTimer; progressBar.style.width = `${(30-feedTimer)/30*100}%`; },1000);
 
+/* -------- demo feed (guaranteed) -------- */
+const demoFeed = [
+  { symbol:'TWG', title:'TWG press release — product launch', url:'#', vol:1200000 },
+  { symbol:'SMOVE', title:'SMOVE soars after news', url:'#', vol:800000 },
+  { symbol:'DRCT', title:'DRCT heavy volume after announcement', url:'#', vol:450000 },
+  { symbol:'TRUE', title:'TRUE mentions strong results', url:'#', vol:250000 }
+];
+
+/* -------- helpers -------- */
+function renderRow({s,p,vol,news,status,cls}) {
+  // table row
+  const tr = document.createElement('tr'); tr.className = cls;
+  tr.innerHTML = `<td><a target=_blank href="https://www.tradingview.com/symbols/${encodeURIComponent(s)}">${s}</a></td>
+                  <td>${(vol/1e6).toFixed(2)}M</td>
+                  <td class="news">${news?`<a target=_blank href="${news.url}">${news.title}</a>`:'—'}</td>
+                  <td>${status}</td>`;
+  rows.appendChild(tr);
+
+  // card
+  const card = document.createElement('div'); card.className = 'card '+cls;
+  card.innerHTML = `<div class="sym"><a target=_blank href="https://www.tradingview.com/symbols/${encodeURIComponent(s)}">${s}</a> ${(p?('$'+Number(p).toFixed(2)):'')}</div>
+                    <div style="margin-top:8px">${news?`<a target=_blank href="${news.url}">${news.title}</a>`:'—'}</div>
+                    <div style="margin-top:8px;color:${status==='HOT'?'#22c55e':(status==='WARM'?'#eab308':'#9ca3af')}">Status: ${status}</div>`;
+  cards.appendChild(card);
+}
+
+/* -------- FINVIZ fetch with multiple proxy fallbacks --------
+   We'll try proxies in order. If all fail or return invalid data, use demo feed.
+*/
+const proxies = [
+  {name:'corsproxy', url: u => `https://corsproxy.io/?https://finviz.com/api/news.ashx`},
+  {name:'allorigins', url: u => `https://api.allorigins.win/raw?url=https://finviz.com/api/news.ashx`},
+  {name:'rjina', url: u => `https://r.jina.ai/http://finviz.com/api/news.ashx`}
+];
+
+async function fetchWithFallback(){
+  let lastErr = null;
+  for (let i=0;i<proxies.length;i++){
+    const p = proxies[i];
+    statusEl.textContent = `Status: trying ${p.name} proxy (${i+1}/${proxies.length})…`;
+    try{
+      const r = await fetch(p.url(), {cache:'no-store'});
+      if(!r.ok) { lastErr = `HTTP ${r.status}`; continue; }
+      const txt = await r.text();
+      // attempt to parse JSON (finviz returns JSON array)
+      try{
+        const data = JSON.parse(txt);
+        // ensure it's an array of items
+        if(Array.isArray(data) && data.length>0) return {source:p.name, data};
+        // sometimes finviz wraps in object: attempt to find top-level array
+        // search for "tickers" occurrences by regex fallback
+        // else consider invalid and continue
+      }catch(parseErr){
+        // If parse fails, try to extract JSON inside text (rare)
+        lastErr = parseErr.message;
+        continue;
+      }
+    }catch(err){
+      lastErr = err.message;
+      continue;
+    }
+  }
+  return {error:lastErr};
+}
+
+/* -------- main scan loop -------- */
 async function scan(){
- rows.innerHTML="";
- cards.innerHTML="";
- leaderDiv.innerHTML="";
+  // reset UI
+  rows.innerHTML = '';
+  cards.innerHTML = '';
+  leaderEl.style.display = 'none';
+  statusEl.textContent = 'Status: scanning…';
 
- try{
-  const url="https://corsproxy.io/?https://finviz.com/api/news.ashx";
-  const r=await fetch(url);
-  const data=await r.json();
+  // if user forced demo, just render demo
+  if(useDemoFeed){
+    statusEl.textContent = 'Status: using demo feed';
+    showFeedItems(demoFeed, true);
+    return;
+  }
 
-  let leaders=[];
-  let minVol=+document.getElementById("minVol").value||100000;
-  let showAll=document.getElementById("showAll").checked;
+  // try live fetch
+  const result = await fetchWithFallback();
 
-  for(let i=0;i<20;i++){
-    const item=data[i];
-    const sym=item.tickers[0];
-    const title=item.title;
-    const vol=Math.floor(Math.random()*2000000)+50000; // simulated volume (Finviz API doesn't provide vol)
+  if(result.error){
+    statusEl.textContent = `Status: live feed failed (${result.error}). Showing demo.`;
+    // allow demo fallback automatically after failed attempts
+    useDemoFeed = true;
+    showFeedItems(demoFeed, true);
+    return;
+  }
 
-    // PMH logic (simulated with news count)
-    pmh[sym]=(pmh[sym]||0)+1;
-    const brokePMH=pmh[sym]>2;
+  const items = result.data;
+  if(!items || !items.length){
+    statusEl.textContent = 'Status: live feed returned no items — showing demo';
+    useDemoFeed = true;
+    showFeedItems(demoFeed, true);
+    return;
+  }
 
+  // parse finviz items: expected shape like [{title, url, tickers:[...]}]
+  const parsed = [];
+  for(const it of items){
+    // robust parsing: support tickers array or string
+    const symbol = (Array.isArray(it.tickers) && it.tickers[0]) || it.ticker || it.symbol || null;
+    const title = it.title || it.t || it.headline || '';
+    const url = it.url || it.link || '#';
+    if(!symbol) continue;
+    parsed.push({symbol, title, url});
+  }
+
+  if(!parsed.length){
+    statusEl.textContent = 'Status: parsed feed empty — showing demo';
+    useDemoFeed = true;
+    showFeedItems(demoFeed, true);
+    return;
+  }
+
+  // show parsed items
+  statusEl.textContent = `Status: live feed OK (${result.source}) — ${parsed.length} items`;
+  lastSuccessful = Date.now();
+  showFeedItems(parsed, false);
+}
+
+/* -------- showFeedItems: accepts either finviz style or demo style -------- */
+function showFeedItems(list, isDemo){
+  const minVol = +document.getElementById('minVol').value || 100000;
+  const showAll = document.getElementById('showAll').checked;
+  const leaders = [];
+
+  // If finviz parsed items, they have symbol,title,url; if demo feed, they have vol
+  for(let i=0;i<list.length;i++){
+    const entry = list[i];
+    // normalize
+    const s = entry.symbol || entry.ticker || (entry.tickers && entry.tickers[0]) || '???';
+    const title = entry.title || entry.t || entry.headline || 'No headline';
+    const url = entry.url || entry.link || '#';
+    // volume: demo provides real simulated volumes; for live finviz we don't get vol -> fake small vol so filters behave
+    const vol = entry.vol || Math.floor(100000 + Math.random()*500000);
+    // simple PMH: increment per symbol when seen (helps leaders)
+    pmh[s] = (pmh[s]||0) + 1;
+    const brokePMH = pmh[s] > 2;
+    // score
     let score=0;
-    if(vol>minVol) score++;
-    if(title.toLowerCase().includes("surge")||title.toLowerCase().includes("soars")) score++;
+    if(vol >= minVol) score++;
+    if(title.toLowerCase().includes('surge') || title.toLowerCase().includes('soars') || title.toLowerCase().includes('jumps')) score++;
     if(brokePMH) score++;
-
-    let status="WATCH",cls="watch";
-    if(score==2){status="WARM";cls="warm";}
-    if(score>=3){status="HOT";cls="hot";leaders.push(sym);}
-
-    if(!showAll && status==="WATCH") continue;
-
-    rows.innerHTML+=`
-      <tr class="${cls}">
-        <td>${sym}</td>
-        <td>${(vol/1e6).toFixed(2)}M</td>
-        <td class="news"><a target=_blank href="${item.url}">${title}</a></td>
-        <td>${status}</td>
-      </tr>
-    `;
-
-    cards.innerHTML+=`
-      <div class="card ${cls}">
-        <div class="sym">${sym}</div>
-        <div class="news"><a target=_blank href="${item.url}">${title}</a></div>
-        <div>Status: ${status}</div>
-      </div>
-    `;
-
-    if(status==="HOT" && !alerted[sym] && sound){
-      beep.play();
-      navigator.vibrate?.([200,100,200]);
-      alerted[sym]=true;
+    // status
+    let status='WATCH', cls='watch';
+    if(score==2){ status='WARM'; cls='warm'; }
+    if(score>=3){ status='HOT'; cls='hot'; leaders.push(s); }
+    // apply showAll/minVol gate
+    if(!showAll && status==='WATCH') continue;
+    if(vol < minVol && !showAll) continue;
+    // render (price not available from finviz)
+    renderRow({ s, p:null, vol, news:{title,url}, status, cls });
+    // alert if HOT
+    if(status==='HOT' && !alerted[s] && sound){
+      beep.play(); navigator.vibrate?.([200,100,200]); alerted[s]=1;
     }
   }
 
+  // leaders banner
   if(leaders.length){
-    leaderDiv.innerHTML="<strong>Leaders:</strong> "+leaders.slice(0,3).join(" • ");
+    leaderEl.style.display = 'block';
+    leaderEl.innerHTML = `<strong>Leaders:</strong> ${[...new Set(leaders)].slice(0,5).join(' • ')}`;
+  } else {
+    leaderEl.style.display = 'none';
   }
 
-  if(!rows.children.length){
-    rows.innerHTML="<tr><td colspan=4>No results</td></tr>";
+  // if nothing rendered, show hint
+  if(rows.children.length === 0){
+    rows.innerHTML = '<tr><td colspan="4" class="small">No results — try lowering MinVol or enable Show All. Use Demo to test.</td></tr>';
+    cards.innerHTML = '';
   }
-
- }catch(e){
-  rows.innerHTML="<tr><td colspan=4>Feed error</td></tr>";
- }
 }
 
+/* -------- run loop -------- */
 scan();
-setInterval(scan,30000);
+setInterval(()=>{ if(!useDemoFeed) scan(); }, 30000);
+
+/* -------- wake lock (best-effort) -------- */
+async function requestWakeLock(){ try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){} }
+requestWakeLock();
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') requestWakeLock(); });
+
 </script>
 </body>
 </html>
