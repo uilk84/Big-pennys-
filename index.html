@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – Wake Lock Pro</title>
+<title>PennyS Scanner – Dealer Build</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -18,94 +18,76 @@ th{opacity:.7;text-align:left}
 .watch{background:rgba(234,179,8,.18)}
 .leader{background:rgba(168,85,247,.35)}
 .lowfloat{color:#22c55e;font-weight:700}
-.ultrafloat{color:#38bdf8;font-weight:700}
 .good{color:#22c55e;font-weight:700}
 .bad{color:#ef4444;font-weight:700}
-.news{font-size:11px}
-.pr{color:#38bdf8;font-weight:700}
+.news a{color:#38bdf8;text-decoration:none}
+.pr{font-weight:700}
 .small{opacity:.6;font-size:12px}
+.cooldown{color:#f87171;font-weight:700}
 a{color:#93c5fd;text-decoration:none}
 </style>
 </head>
 
 <body>
 <div class="container">
-  <h2>PennyS Scanner (Wake Lock Pro)</h2>
+<h2>PennyS Scanner (Dealer Build)</h2>
 
-  <div class="controls">
-    <button id="soundBtn">🔔 ON</button>
-    <label><input type="checkbox" id="pre"> PM</label>
-    <label><input type="checkbox" id="post"> AH</label>
+<div class="controls">
+<button id="soundBtn">🔔 ON</button>
+<span id="cooldownLabel"></span>
+<label><input type="checkbox" id="pre"> PM</label>
+<label><input type="checkbox" id="post"> AH</label>
 
-    <button onclick="preset('lotto')">🎰</button>
-    <button onclick="preset('scalp')">⚡</button>
-    <button onclick="preset('momentum')">🚀</button>
+<button onclick="preset('lotto')">🎰</button>
+<button onclick="preset('scalp')">⚡</button>
+<button onclick="preset('momentum')">🚀</button>
 
-    <label>Min <input id="minPrice" type="number" value="0.10"></label>
-    <label>Max <input id="maxPrice" type="number" value="10"></label>
-    <label>Risk <input id="riskPerTrade" type="number" value="100"></label>
-  </div>
+<label>Min <input id="minPrice" type="number" value="0.10"></label>
+<label>Max <input id="maxPrice" type="number" value="10"></label>
+<label>Risk <input id="riskPerTrade" type="number" value="100"></label>
+</div>
 
-  <div class="small">
-    Session: <span id="session"></span> |
-    Feed: <span id="feedLabel"></span>
-  </div>
+<div class="small">
+Session: <span id="session"></span> |
+Feed: <span id="feedLabel"></span>
+</div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Sym</th>
-        <th>Price</th>
-        <th>PMH</th>
-        <th>Float</th>
-        <th>Vol</th>
-        <th>News</th>
-        <th>Stop</th>
-        <th>R:R</th>
-        <th>Sh</th>
-        <th>Signal</th>
-      </tr>
-    </thead>
-    <tbody id="rows">
-      <tr><td colspan="10" class="small">Waiting…</td></tr>
-    </tbody>
-  </table>
+<table>
+<thead>
+<tr>
+<th>Sym</th><th>Price</th><th>PMH</th><th>Vol</th>
+<th>News</th><th>Stop</th><th>R:R</th><th>Sh</th><th>Signal</th>
+</tr>
+</thead>
+<tbody id="rows"><tr><td colspan="9" class="small">Waiting…</td></tr></tbody>
+</table>
 </div>
 
 <audio id="beep">
-  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
 </audio>
 
 <script>
-/* ================= WAKE LOCK ================= */
-let wakeLock = null;
+/* ===== WAKE LOCK ===== */
+let wakeLock=null;
 async function requestWakeLock(){
-  try{
-    wakeLock = await navigator.wakeLock.request("screen");
-    console.log("Wake Lock active");
-  }catch(err){
-    console.log("Wake Lock failed:", err);
-  }
+ try{wakeLock=await navigator.wakeLock.request("screen");}
+ catch(e){}
 }
 requestWakeLock();
-document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="visible"){
-    requestWakeLock();
-  }
-});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")requestWakeLock()});
 
-/* ================= DOM ================= */
+/* ===== DOM ===== */
 const rows=document.getElementById("rows");
 const beep=document.getElementById("beep");
 const soundBtn=document.getElementById("soundBtn");
 const sessionEl=document.getElementById("session");
 const feedLabel=document.getElementById("feedLabel");
+const cooldownLabel=document.getElementById("cooldownLabel");
 
 let sound=true;
 let pmh={}, lastPrice={}, lastVol={}, alerted={};
-
-/* FLOAT MAP */
-const floatMap={ SMOVE:12000000, DRCT:18000000 };
+let cooldownUntil=0;
 
 /* FEEDS */
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
@@ -119,144 +101,142 @@ const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
 function preset(p){
-  if(p==="lotto"){minPrice.value=.1;maxPrice.value=1}
-  if(p==="scalp"){minPrice.value=.3;maxPrice.value=3}
-  if(p==="momentum"){minPrice.value=1;maxPrice.value=10}
-  scan()
+ if(p==="lotto"){minPrice.value=.1;maxPrice.value=1}
+ if(p==="scalp"){minPrice.value=.3;maxPrice.value=3}
+ if(p==="momentum"){minPrice.value=1;maxPrice.value=10}
+ scan()
 }
 
 function session(){
-  const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}))
-  const h=d.getHours()+d.getMinutes()/60
-  if(h>=4&&h<9.5) return "PM"
-  if(h>=9.5&&h<16) return "RTH"
-  if(h>=16&&h<=20) return "AH"
-  return "CLOSED"
+ const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}))
+ const h=d.getHours()+d.getMinutes()/60
+ if(h>=4&&h<9.5)return"PM"
+ if(h>=9.5&&h<16)return"RTH"
+ if(h>=16&&h<=20)return"AH"
+ return"CLOSED"
 }
 function allowed(){
-  const s=session()
-  if(s==="PM") return pre.checked
-  if(s==="RTH") return true
-  if(s==="AH") return post.checked
-  return false
+ const s=session()
+ if(s==="PM")return pre.checked
+ if(s==="RTH")return true
+ if(s==="AH")return post.checked
+ return false
 }
 
-/* NEWS LOOKUP */
+/* NEWS */
 async function getNews(sym){
-  const now=Date.now()
-  if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
+ const now=Date.now()
+ if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL)return newsCache[sym]
+ try{
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
+  const j=await r.json()
+  if(j.news&&j.news.length){
+    const n=j.news[0]
+    const title=n.title.toLowerCase()
+    const isPR=PR_SOURCES.some(src=>title.includes(src))
+    newsCache[sym]={title:n.title,url:n.link,isPR:isPR,time:now}
+    return newsCache[sym]
+  }
+ }catch{}
+ return null
+}
 
-  try{
-    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
-    const j=await r.json()
-    if(j.news&&j.news.length){
-      const n=j.news[0]
-      const title=n.title.toLowerCase()
-      const isPR=PR_SOURCES.some(src=>title.includes(src))
-      newsCache[sym]={title:n.title,isPR:isPR,time:now}
-      return newsCache[sym]
-    }
-  }catch{}
-  return null
+function updateCooldown(){
+ if(Date.now()<cooldownUntil){
+   const sec=Math.ceil((cooldownUntil-Date.now())/1000)
+   cooldownLabel.textContent=`⏸ Cooldown ${sec}s`
+   cooldownLabel.className="cooldown"
+   return true
+ }
+ cooldownLabel.textContent=""
+ return false
 }
 
 async function scan(){
-  const currentFeed=feeds[feedIndex]
-  feedLabel.textContent=currentFeed
-  feedIndex=(feedIndex+1)%feeds.length
+ if(updateCooldown()) return;
 
-  sessionEl.textContent=session()
-  if(!allowed()){
-    rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`
-    return
-  }
+ const currentFeed=feeds[feedIndex]
+ feedLabel.textContent=currentFeed
+ feedIndex=(feedIndex+1)%feeds.length
 
-  const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value
+ sessionEl.textContent=session()
+ if(!allowed()){
+   rows.innerHTML=`<tr><td colspan=9 class=small>Session blocked</td></tr>`
+   return
+ }
 
-  try{
-    const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`)
-    const q=(await r.json()).finance.result[0].quotes
+ const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value
 
-    const sorted=[...q].sort((a,b)=>(b.regularMarketVolume||0)-(a.regularMarketVolume||0))
-    const leaders=sorted.slice(0,3).map(x=>x.symbol)
+ try{
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`)
+  const q=(await r.json()).finance.result[0].quotes
 
-    rows.innerHTML=""
+  rows.innerHTML=""
 
-    for(const t of q){
-      const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
-      if(!s||!p||p<min||p>max) continue
+  for(const t of q){
+    const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
+    if(!s||!p||p<min||p>max)continue
 
-      const prevPrice=lastPrice[s]||p
-      const prevVol=lastVol[s]||v
-      lastPrice[s]=p; lastVol[s]=v
+    const prevPrice=lastPrice[s]||p
+    const prevVol=lastVol[s]||v
+    lastPrice[s]=p; lastVol[s]=v
 
-      if(session()==="PM") pmh[s]=Math.max(pmh[s]||0,p)
+    if(session()==="PM")pmh[s]=Math.max(pmh[s]||0,p)
 
-      const hasPMH=pmh[s]>0
-      const brokePMH=hasPMH&&p>pmh[s]
-      const retestHold=brokePMH&&prevPrice>=pmh[s]*0.99&&p>=pmh[s]
-      const volAccel=v>prevVol*1.3
+    const hasPMH=pmh[s]>0
+    const brokePMH=hasPMH&&p>pmh[s]
+    const retestHold=brokePMH&&prevPrice>=pmh[s]*0.99&&p>=pmh[s]
+    const volAccel=v>prevVol*1.3
 
-      const fl=floatMap[s]||null
-      let floatTag="—"
-      if(fl){
-        if(fl<10000000) floatTag="ULTRA"
-        else if(fl<30000000) floatTag="LOW"
-        else floatTag="HIGH"
-      }
+    const newsObj=await getNews(s)
+    const hasPR=newsObj&&newsObj.isPR
 
-      const newsObj=await getNews(s)
-      const hasPR=newsObj&&newsObj.isPR
+    const stop=hasPMH?pmh[s]*0.97:p*0.97
+    const risk=p-stop
+    if(risk<=0)continue
 
-      const stop=hasPMH?pmh[s]*0.97:p*0.97
-      const risk=p-stop
-      if(risk<=0) continue
+    const sh=Math.floor(riskMax/risk)
+    const rr=((risk*2)/risk).toFixed(1)
 
-      const sh=Math.floor(riskMax/risk)
-      const rr=((risk*2)/risk).toFixed(1)
+    let sig="WATCH",cls="watch"
 
-      let sig="WATCH",cls="watch"
-      if(retestHold&&volAccel&&fl&&fl<30000000&&hasPR&&sh>=1){
-        sig="A+ PMH + PR"
-        cls="aplus"
-      }
-
-      if(leaders.includes(s)){
-        cls="leader"
-        sig="🔥 LEADER"
-      }
-
-      rows.innerHTML+=`
-        <tr class=${cls}>
-          <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
-          <td>$${p.toFixed(2)}</td>
-          <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
-          <td>${floatTag}</td>
-          <td>${(v/1e6).toFixed(2)}M</td>
-          <td class="news ${hasPR?'pr':''}">${newsObj?newsObj.title:"—"}</td>
-          <td>$${stop.toFixed(2)}</td>
-          <td class=${rr>=2?"good":"bad"}>${rr}</td>
-          <td>${sh}</td>
-          <td>${sig}</td>
-        </tr>`
-
-      if(sig==="A+ PMH + PR"&&!alerted[s]&&sound){
-        beep.play()
-        navigator.vibrate?.([200,100,200])
-        alerted[s]=1
-      }
+    if(retestHold&&volAccel&&hasPR&&sh>=1){
+      sig="A+ PMH + PR"
+      cls="aplus"
     }
 
-    if(!rows.children.length)
-      rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`
+    rows.innerHTML+=`
+    <tr class=${cls}>
+      <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
+      <td>$${p.toFixed(2)}</td>
+      <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
+      <td>${(v/1e6).toFixed(2)}M</td>
+      <td class="news">${newsObj?`<a target=_blank href="${newsObj.url}" class="${hasPR?'pr':''}">${newsObj.title}</a>`:"—"}</td>
+      <td>$${stop.toFixed(2)}</td>
+      <td class=${rr>=2?"good":"bad"}>${rr}</td>
+      <td>${sh}</td>
+      <td>${sig}</td>
+    </tr>`
 
-  }catch{
-    rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`
+    if(sig==="A+ PMH + PR"&&!alerted[s]&&sound){
+      beep.play()
+      navigator.vibrate?.([200,100,200])
+      alerted[s]=1
+      cooldownUntil=Date.now()+5*60*1000
+    }
   }
+
+  if(!rows.children.length)
+    rows.innerHTML=`<tr><td colspan=9 class=small>No setups</td></tr>`
+
+ }catch{
+  rows.innerHTML=`<tr><td colspan=9 class=small>Feed error</td></tr>`
+ }
 }
 
 scan()
 setInterval(scan,20000)
+setInterval(updateCooldown,1000)
 </script>
 </body>
 </html>
