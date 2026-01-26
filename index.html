@@ -2,38 +2,71 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – SAFE</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Penny Scanner – Good v1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body{margin:0;font-family:-apple-system;background:#061018;color:#f1f5f9}
-h1{margin:12px}
-.controls{display:flex;flex-wrap:wrap;gap:8px;padding:10px}
-button,input,label{background:#0f1724;color:#fff;border:none;border-radius:10px;padding:8px 10px}
-.small{font-size:13px;opacity:.8;padding:0 10px}
+body {
+  margin:0;
+  font-family:-apple-system, BlinkMacSystemFont, sans-serif;
+  background:#061018;
+  color:#f1f5f9;
+}
+h1 {padding:12px;margin:0}
+.controls {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  padding:10px;
+}
+button, input, label {
+  background:#0f1724;
+  color:white;
+  border:none;
+  border-radius:10px;
+  padding:8px 10px;
+}
+.small {font-size:13px;opacity:.8;padding:0 10px}
 
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left}
-th{opacity:.7}
-.aplus{background:rgba(34,197,94,.25)}
-.bsetup{background:rgba(234,179,8,.18)}
-.skip{opacity:.4}
+table {
+  width:100%;
+  border-collapse:collapse;
+  font-size:14px;
+}
+th, td {
+  padding:10px;
+  border-bottom:1px solid #1f2937;
+  text-align:left;
+}
+th {opacity:.6}
 
-.news a{color:#7cc7ff;font-weight:600;text-decoration:none}
+.hot {background:rgba(34,197,94,0.25)}
+.warm {background:rgba(234,179,8,0.2)}
+.watch {opacity:.6}
 
-#cards{display:none;padding:10px}
-.card{background:#0f1724;border-radius:12px;padding:12px;margin-bottom:12px}
-.sym{font-weight:800;color:#38bdf8;font-size:18px}
-.signal{font-weight:700}
+.news a {
+  color:#7cc7ff;
+  font-weight:600;
+  text-decoration:none;
+}
+
+#cards {display:none;padding:10px}
+.card {
+  background:#0f1724;
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:12px;
+}
+.sym {font-weight:800;color:#38bdf8;font-size:18px}
 
 @media(max-width:800px){
- table{display:none}
- #cards{display:block}
+  table {display:none}
+  #cards {display:block}
 }
 </style>
 </head>
 
 <body>
-<h1>PennyS Scanner (SAFE)</h1>
+<h1>Penny Scanner (Good v1)</h1>
 
 <div class="controls">
 <button id="soundBtn">🔔 ON</button>
@@ -41,27 +74,32 @@ th{opacity:.7}
 <label><input type="checkbox" id="pre" checked> PM</label>
 <label><input type="checkbox" id="post" checked> AH</label>
 
-<label>Min <input id="minPrice" type="number" value="0.5"></label>
-<label>Max <input id="maxPrice" type="number" value="20"></label>
-<label>MinVol <input id="minVol" type="number" value="50000"></label>
+<label>Min <input id="minPrice" type="number" value="0.5" style="width:80px"></label>
+<label>Max <input id="maxPrice" type="number" value="20" style="width:80px"></label>
+<label>MinVol <input id="minVol" type="number" value="50000" style="width:100px"></label>
 
 <label><input type="checkbox" id="showAll" checked> Show All</label>
-<label><input type="checkbox" id="prOnly"> PR Only</label>
 </div>
 
 <div class="small">
 Session: <span id="session"></span> |
 Feed: <span id="feedLabel"></span> |
-Next feed in <span id="timer">20</span>s
+Next scan in <span id="timer">20</span>s
 </div>
 
 <table>
 <thead>
 <tr>
-<th>Sym</th><th>Price</th><th>Vol</th><th>News</th><th>Score</th><th>Signal</th>
+<th>Sym</th>
+<th>Price</th>
+<th>Vol</th>
+<th>News</th>
+<th>Status</th>
 </tr>
 </thead>
-<tbody id="rows"><tr><td colspan="6">Waiting…</td></tr></tbody>
+<tbody id="rows">
+<tr><td colspan="5">Loading…</td></tr>
+</tbody>
 </table>
 
 <div id="cards"></div>
@@ -76,168 +114,140 @@ async function requestWakeLock(){
  try{ if("wakeLock" in navigator) wakeLock=await navigator.wakeLock.request("screen"); }catch{}
 }
 requestWakeLock();
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") requestWakeLock(); });
 
 const rows=document.getElementById("rows");
 const cards=document.getElementById("cards");
 const beep=document.getElementById("beep");
 const soundBtn=document.getElementById("soundBtn");
-const sessionEl=document.getElementById("session");
 const feedLabel=document.getElementById("feedLabel");
+const sessionEl=document.getElementById("session");
 const timerEl=document.getElementById("timer");
 
 let sound=true;
 soundBtn.onclick=()=>{sound=!sound;soundBtn.textContent=sound?"🔔 ON":"🔕 OFF"}
 
-let pmh={}, lastVol={}, alerted={}, newsCache={};
-let cooldownUntil=0;
-
-/* daily reset */
-let lastTradingDate=localStorage.getItem("lastTradingDate");
-function checkNewDay(){
- const today=new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
- if(lastTradingDate!==today){
-  pmh={}; lastVol={}; alerted={}; newsCache={};
-  lastTradingDate=today;
-  localStorage.setItem("lastTradingDate",today);
- }
-}
-
-/* feeds */
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
 let feedIndex=0;
+let timer=20;
 
-/* news */
-const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
-const NEWS_TTL=5*60*1000;
+setInterval(()=>{
+ timer--;
+ if(timer<=0) timer=20;
+ timerEl.textContent=timer;
+},1000);
 
-let t=20;
-setInterval(()=>{t--;if(t<=0)t=20;timerEl.textContent=t},1000);
-
-function session(){
- const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}))
- const h=d.getHours()+d.getMinutes()/60
- if(h>=4&&h<9.5) return "PM"
- if(h>=9.5&&h<16) return "RTH"
- if(h>=16&&h<=20) return "AH"
- return "CLOSED"
+function getSession(){
+ const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
+ const h=d.getHours()+d.getMinutes()/60;
+ if(h>=4&&h<9.5) return "PM";
+ if(h>=9.5&&h<16) return "RTH";
+ if(h>=16&&h<=20) return "AH";
+ return "CLOSED";
 }
+
 function allowed(){
- const s=session()
- if(s==="PM") return pre.checked
- if(s==="RTH") return true
- if(s==="AH") return post.checked
- return false
+ const s=getSession();
+ if(s==="PM") return pre.checked;
+ if(s==="RTH") return true;
+ if(s==="AH") return post.checked;
+ return false;
 }
 
 async function getNews(sym){
- const now=Date.now();
- if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
  try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
-  const j=await r.json()
-  if(j.news&&j.news.length){
-   const n=j.news[0]
-   const isPR=PR_SOURCES.some(src=>n.title.toLowerCase().includes(src))
-   newsCache[sym]={title:n.title,url:n.link,isPR:isPR,time:now}
-   return newsCache[sym]
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`);
+  const j=await r.json();
+  if(j.news && j.news.length){
+    return {title:j.news[0].title,url:j.news[0].link};
   }
  }catch{}
- return null
+ return null;
 }
 
 async function scan(){
- checkNewDay()
- if(Date.now()<cooldownUntil) return
+ sessionEl.textContent=getSession();
 
- sessionEl.textContent=session()
  if(!allowed()){
-  rows.innerHTML="<tr><td colspan=6>Session blocked</td></tr>"
-  cards.innerHTML=""
-  return
+  rows.innerHTML="<tr><td colspan=5>Session blocked</td></tr>";
+  cards.innerHTML="";
+  return;
  }
 
- const min=+minPrice.value||0.5
- const max=+maxPrice.value||20
- const minVol=+minVol.value||50000
- const showAll=showAll.checked
- const prOnly=prOnly.checked
+ const min=+minPrice.value||0.5;
+ const max=+maxPrice.value||20;
+ const minVol=+minVol.value||50000;
+ const showAll=showAll.checked;
 
- const feed=feeds[feedIndex]
- feedLabel.textContent=feed
- feedIndex=(feedIndex+1)%feeds.length
- t=20
+ const feed=feeds[feedIndex];
+ feedLabel.textContent=feed;
+ feedIndex=(feedIndex+1)%feeds.length;
+ timer=20;
+
+ rows.innerHTML="";
+ cards.innerHTML="";
 
  try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=40&scrIds=${feed}`)
-  const q=(await r.json()).finance.result[0].quotes
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=40&scrIds=${feed}`);
+  const q=(await r.json()).finance.result[0].quotes;
 
-  rows.innerHTML=""
-  cards.innerHTML=""
+  for(const t of q){
+   const s=t.symbol;
+   const p=t.regularMarketPrice;
+   const v=t.regularMarketVolume||0;
 
-  for(const tkr of q){
-   const s=tkr.symbol
-   const p=tkr.regularMarketPrice
-   const v=tkr.regularMarketVolume||0
+   if(!s||!p) continue;
+   if(p<min||p>max) continue;
+   if(v<minVol) continue;
 
-   if(!s||!p) continue
-   if(p<min||p>max) continue
-   if(v<minVol) continue
+   const newsObj=await getNews(s);
 
-   const prevV=lastVol[s]||v
-   lastVol[s]=v
+   let score=0;
+   if(newsObj) score++;
+   if(v>200000) score++;
+   if(v>500000) score++;
 
-   const newsObj=await getNews(s)
-   const isPR=newsObj&&newsObj.isPR
-   if(prOnly && !isPR) continue
+   let status="WATCH",cls="watch";
+   if(score==2){status="WARM";cls="warm";}
+   if(score>=3){status="HOT";cls="hot";}
 
-   let score=0
-   if(isPR) score+=3
-   if(v>prevV*1.3) score+=2
-
-   let sig="SKIP",cls="skip"
-   if(score>=5){sig="B SETUP";cls="bsetup"}
-   if(score>=7){sig="A+ SETUP";cls="aplus"}
-
-   if(!showAll && cls==="skip") continue
+   if(!showAll && status==="WATCH") continue;
 
    rows.innerHTML+=`
-   <tr class="${cls}">
-    <td>${s}</td>
-    <td>$${p.toFixed(2)}</td>
-    <td>${(v/1e6).toFixed(2)}M</td>
-    <td class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</td>
-    <td>${score}</td>
-    <td>${sig}</td>
-   </tr>`
+    <tr class="${cls}">
+      <td>${s}</td>
+      <td>$${p.toFixed(2)}</td>
+      <td>${(v/1e6).toFixed(2)}M</td>
+      <td class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</td>
+      <td>${status}</td>
+    </tr>
+   `;
 
    cards.innerHTML+=`
-   <div class="card ${cls}">
-    <div class="sym">${s} $${p.toFixed(2)}</div>
-    <div class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</div>
-    <div>Score: ${score} | ${sig}</div>
-   </div>`
+    <div class="card ${cls}">
+      <div class="sym">${s} $${p.toFixed(2)}</div>
+      <div class="news">${newsObj?`<a target=_blank href="${newsObj.url}">${newsObj.title}</a>`:"—"}</div>
+      <div>Status: ${status}</div>
+    </div>
+   `;
 
-   if(sig==="A+ SETUP"&&!alerted[s]&&sound){
-    beep.play()
-    navigator.vibrate?.([200,100,200])
-    alerted[s]=1
-    cooldownUntil=Date.now()+300000
+   if(status==="HOT" && sound){
+     beep.play();
+     navigator.vibrate?.([200,100,200]);
    }
   }
 
   if(!rows.children.length){
-   rows.innerHTML="<tr><td colspan=6>No results (adjust filters)</td></tr>"
-   cards.innerHTML=""
+    rows.innerHTML="<tr><td colspan=5>No results</td></tr>";
+    cards.innerHTML="";
   }
 
  }catch{
-  rows.innerHTML="<tr><td colspan=6>Feed error</td></tr>"
+  rows.innerHTML="<tr><td colspan=5>Feed error</td></tr>";
  }
 }
 
-scan()
-setInterval(scan,20000)
+scan();
+setInterval(scan,20000);
 </script>
 </body>
 </html>
