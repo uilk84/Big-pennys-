@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PennyS Scanner – Quality Score</title>
+<title>PennyS Scanner – Daily Reset</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -17,7 +17,6 @@ th{opacity:.7;text-align:left}
 .aplus{background:rgba(34,197,94,.25)}
 .bsetup{background:rgba(234,179,8,.18)}
 .skip{opacity:.4}
-.leader{background:rgba(168,85,247,.35)}
 .good{color:#22c55e;font-weight:700}
 .bad{color:#ef4444;font-weight:700}
 .news a{color:#38bdf8;text-decoration:none}
@@ -32,7 +31,7 @@ th{opacity:.7;text-align:left}
 
 <body>
 <div class="container">
-<h2>PennyS Scanner (Quality Score)</h2>
+<h2>PennyS Scanner (Daily Reset)</h2>
 
 <div class="controls">
 <button id="soundBtn">🔔 ON</button>
@@ -76,13 +75,10 @@ Feed: <span id="feedLabel"></span>
 /* ===== WAKE LOCK ===== */
 let wakeLock=null;
 async function requestWakeLock(){
- try{wakeLock=await navigator.wakeLock.request("screen");}
- catch(e){}
+ try{wakeLock=await navigator.wakeLock.request("screen");}catch(e){}
 }
 requestWakeLock();
-document.addEventListener("visibilitychange",()=>{
- if(document.visibilityState==="visible") requestWakeLock();
-});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")requestWakeLock()});
 
 /* ===== DOM ===== */
 const rows=document.getElementById("rows");
@@ -93,15 +89,26 @@ const feedLabel=document.getElementById("feedLabel");
 const cooldownLabel=document.getElementById("cooldownLabel");
 
 let sound=true;
-let pmh={}, lastPrice={}, lastVol={}, alerted={};
+let pmh={}, lastPrice={}, lastVol={}, alerted={}, newsCache={};
 let cooldownUntil=0;
+
+/* DAILY RESET */
+let lastTradingDate = localStorage.getItem("lastTradingDate");
+function checkNewDay(){
+ const today = new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
+ if(lastTradingDate !== today){
+   pmh={}; lastPrice={}; lastVol={}; alerted={}; newsCache={};
+   lastTradingDate=today;
+   localStorage.setItem("lastTradingDate",today);
+   console.log("New trading day reset");
+ }
+}
 
 /* FEEDS */
 const feeds=["day_gainers","most_actives","small_cap_gainers"];
 let feedIndex=0;
 
-/* NEWS CACHE */
-const newsCache={};
+/* NEWS */
 const NEWS_TTL=5*60*1000;
 const PR_SOURCES=["globenewswire","prnewswire","businesswire","accesswire"];
 
@@ -130,129 +137,118 @@ function allowed(){
  return false
 }
 
-/* NEWS */
 async function getNews(sym){
- const now=Date.now()
- if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym]
+ const now=Date.now();
+ if(newsCache[sym]&&(now-newsCache[sym].time)<NEWS_TTL) return newsCache[sym];
  try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`)
-  const j=await r.json()
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/search?q=${sym}`);
+  const j=await r.json();
   if(j.news&&j.news.length){
-    const n=j.news[0]
-    const title=n.title.toLowerCase()
-    const isPR=PR_SOURCES.some(src=>title.includes(src))
-    newsCache[sym]={title:n.title,url:n.link,isPR:isPR,time:now}
-    return newsCache[sym]
+    const n=j.news[0];
+    const isPR=PR_SOURCES.some(src=>n.title.toLowerCase().includes(src));
+    newsCache[sym]={title:n.title,url:n.link,isPR:isPR,time:now};
+    return newsCache[sym];
   }
  }catch{}
- return null
+ return null;
 }
 
 function updateCooldown(){
  if(Date.now()<cooldownUntil){
-  const sec=Math.ceil((cooldownUntil-Date.now())/1000)
-  cooldownLabel.textContent=`⏸ Cooldown ${sec}s`
-  cooldownLabel.className="cooldown"
-  return true
+  const sec=Math.ceil((cooldownUntil-Date.now())/1000);
+  cooldownLabel.textContent=`⏸ Cooldown ${sec}s`;
+  cooldownLabel.className="cooldown";
+  return true;
  }
- cooldownLabel.textContent=""
- return false
+ cooldownLabel.textContent="";
+ return false;
 }
 
 async function scan(){
+ checkNewDay();
  if(updateCooldown()) return;
 
- const currentFeed=feeds[feedIndex]
- feedLabel.textContent=currentFeed
- feedIndex=(feedIndex+1)%feeds.length
+ const currentFeed=feeds[feedIndex];
+ feedLabel.textContent=currentFeed;
+ feedIndex=(feedIndex+1)%feeds.length;
 
- sessionEl.textContent=session()
+ sessionEl.textContent=session();
  if(!allowed()){
-  rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`
-  return
+  rows.innerHTML=`<tr><td colspan=10 class=small>Session blocked</td></tr>`;
+  return;
  }
 
- const min=+minPrice.value,max=+maxPrice.value,riskMax=+riskPerTrade.value
-
  try{
-  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`)
-  const q=(await r.json()).finance.result[0].quotes
+  const r=await fetch(`https://corsproxy.io/?https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=30&scrIds=${currentFeed}`);
+  const q=(await r.json()).finance.result[0].quotes;
 
-  const sorted=[...q].sort((a,b)=>(b.regularMarketVolume||0)-(a.regularMarketVolume||0))
-  const leaders=sorted.slice(0,3).map(x=>x.symbol)
-
-  rows.innerHTML=""
+  rows.innerHTML="";
 
   for(const t of q){
-   const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol
-   if(!s||!p||p<min||p>max) continue
+   const p=t.regularMarketPrice,v=t.regularMarketVolume||0,s=t.symbol;
+   if(!s||!p) continue;
 
-   const prevPrice=lastPrice[s]||p
-   const prevVol=lastVol[s]||v
-   lastPrice[s]=p; lastVol[s]=v
+   const prevPrice=lastPrice[s]||p;
+   const prevVol=lastVol[s]||v;
+   lastPrice[s]=p; lastVol[s]=v;
 
-   if(session()==="PM") pmh[s]=Math.max(pmh[s]||0,p)
+   if(session()==="PM") pmh[s]=Math.max(pmh[s]||0,p);
 
-   const hasPMH=pmh[s]>0
-   const brokePMH=hasPMH&&p>pmh[s]
-   const retestHold=brokePMH&&prevPrice>=pmh[s]*0.99&&p>=pmh[s]
-   const volAccel=v>prevVol*1.3
+   const hasPMH=pmh[s]>0;
+   const retestHold=hasPMH&&p>=pmh[s]*0.99;
+   const volAccel=v>prevVol*1.3;
 
-   const newsObj=await getNews(s)
-   const hasPR=newsObj&&newsObj.isPR
+   const newsObj=await getNews(s);
+   const hasPR=newsObj&&newsObj.isPR;
 
-   const stop=hasPMH?pmh[s]*0.97:p*0.97
-   const risk=p-stop
-   if(risk<=0) continue
+   const stop=hasPMH?pmh[s]*0.97:p*0.97;
+   const risk=p-stop;
+   if(risk<=0) continue;
 
-   const sh=Math.floor(riskMax/risk)
-   const rr=(2).toFixed(1)
+   const sh=Math.floor(100/risk);
 
-   /* ===== QUALITY SCORE ===== */
    let score=0;
    if(hasPR) score+=3;
    if(retestHold) score+=2;
    if(volAccel) score+=2;
-   if(leaders.includes(s)) score+=2;
-   if(rr>=2) score+=1;
+   if(score>=7) score+=1;
 
-   let sig="SKIP",cls="skip",scoreClass="scoreC"
-   if(score>=8){ sig="A+ SETUP"; cls="aplus"; scoreClass="scoreA"; }
-   else if(score>=5){ sig="B SETUP"; cls="bsetup"; scoreClass="scoreB"; }
+   let sig="SKIP",cls="skip",scoreClass="scoreC";
+   if(score>=8){sig="A+ SETUP";cls="aplus";scoreClass="scoreA";}
+   else if(score>=5){sig="B SETUP";cls="bsetup";scoreClass="scoreB";}
 
    rows.innerHTML+=`
    <tr class=${cls}>
-    <td><a target=_blank href="https://www.tradingview.com/chart/?symbol=${s}">${s}</a></td>
+    <td>${s}</td>
     <td>$${p.toFixed(2)}</td>
     <td>${hasPMH?pmh[s].toFixed(2):"-"}</td>
     <td>${(v/1e6).toFixed(2)}M</td>
     <td class="news">${newsObj?`<a target=_blank href="${newsObj.url}" class="${hasPR?'pr':''}">${newsObj.title}</a>`:"—"}</td>
     <td>$${stop.toFixed(2)}</td>
-    <td class=${rr>=2?"good":"bad"}>${rr}</td>
     <td>${sh}</td>
     <td class=${scoreClass}>${score}</td>
     <td>${sig}</td>
-   </tr>`
+   </tr>`;
 
    if(sig==="A+ SETUP"&&!alerted[s]&&sound){
-    beep.play()
-    navigator.vibrate?.([200,100,200])
-    alerted[s]=1
-    cooldownUntil=Date.now()+5*60*1000
+    beep.play();
+    navigator.vibrate?.([200,100,200]);
+    alerted[s]=1;
+    cooldownUntil=Date.now()+5*60*1000;
    }
   }
 
   if(!rows.children.length)
-   rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`
+   rows.innerHTML=`<tr><td colspan=10 class=small>No setups</td></tr>`;
 
  }catch{
-  rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`
+  rows.innerHTML=`<tr><td colspan=10 class=small>Feed error</td></tr>`;
  }
 }
 
-scan()
-setInterval(scan,20000)
-setInterval(updateCooldown,1000)
+scan();
+setInterval(scan,20000);
+setInterval(updateCooldown,1000);
 </script>
 </body>
 </html>
