@@ -1,9 +1,9 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner — Auto Worker Fallback</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Penny Scanner — Good v2.5</title>
 <style>
 :root{--bg:#061018;--panel:#0f1724;--muted:#9ca3af;--text:#e6eef8;--accent:#38bdf8}
 *{box-sizing:border-box}
@@ -11,52 +11,59 @@ html,body{height:100%;margin:0;font-family:-apple-system,Segoe UI,Roboto,Helveti
 .container{padding:14px;max-width:980px;margin:0 auto}
 h1{margin:0 0 12px;font-size:1.6rem}
 .controls{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;align-items:center}
-.controls button,input,label,select{background:var(--panel);color:var(--text);border:none;padding:8px 10px;border-radius:10px}
+.controls > *{background:var(--panel);color:var(--text);border:none;padding:8px 10px;border-radius:10px}
 .small{color:var(--muted);font-size:13px;margin-bottom:10px}
 .card{background:var(--panel);padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.03)}
 .sym{font-weight:800;color:var(--accent);font-size:1.05rem}
 .hot{border-left:4px solid #22c55e}
 .warm{border-left:4px solid #eab308}
 .watch{border-left:4px solid #64748b}
+.quality{float:right;font-weight:700}
 .news a{color:#7cc7ff;font-weight:600;text-decoration:none}
-@media(max-width:820px){table{display:none} #cards{display:block}}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.03);text-align:left}
-th{color:var(--muted)}
 .progress{height:6px;background:rgba(255,255,255,0.03);border-radius:6px;overflow:hidden;margin:6px 0}
 .progress > div{height:100%;width:0;background:linear-gradient(90deg,#2dd4bf,#3b82f6);transition:width .25s}
+.presets select{background:transparent;color:var(--text);padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03)}
+@media(max-width:820px){table{display:none} #cards{display:block}}
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>Penny Scanner — Auto Worker Fallback</h1>
+  <h1>Penny Scanner — Good v2.5</h1>
 
   <div class="controls">
     <button id="soundBtn">🔔 ON</button>
     <label>MinVol <input id="minVol" type="number" value="100000" style="width:110px"></label>
     <label><input id="showAll" type="checkbox" checked> Show All</label>
-    <button id="demoBtn">Force Demo</button>
+    <label><input id="prOnly" type="checkbox"> PR Only</label>
+    <div class="presets">
+      <select id="preset">
+        <option value="">Presets</option>
+        <option value="safe">Safe (higher vol)</option>
+        <option value="aggressive">Aggressive (lower vol)</option>
+        <option value="pr">PR Only</option>
+      </select>
+    </div>
+    <button id="forceDemo">Force Demo</button>
   </div>
 
-  <div class="small" id="status">Initializing…</div>
+  <div class="small" id="status">Starting…</div>
   <div class="progress" aria-hidden="true"><div id="prog"></div></div>
-
   <div id="leader" class="small" style="display:none;margin-top:8px"></div>
+
   <div id="cards" aria-live="polite"></div>
 
   <audio id="beep"><source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 </div>
 
 <script>
-/* ---------- candidate worker URLs (auto-fallback) ---------- */
-/* These are the worker hostnames we've seen in your account screenshots */
+/* ========== CONFIG: worker candidates (auto-try) ========== */
 const FEED_CANDIDATES = [
   "https://holy-mouse-bba2.jasonuilkie84.workers.dev/",
   "https://nameless-bush-264e.jasonuilkie84.workers.dev/",
   "https://pennystock.jasonuilkie84.workers.dev/"
 ];
 
-/* ---------- DOM ---------- */
+/* ========== DOM ========== */
 const statusEl = document.getElementById('status');
 const prog = document.getElementById('prog');
 const cards = document.getElementById('cards');
@@ -64,19 +71,23 @@ const leaderEl = document.getElementById('leader');
 const soundBtn = document.getElementById('soundBtn');
 const minVol = document.getElementById('minVol');
 const showAll = document.getElementById('showAll');
-const demoBtn = document.getElementById('demoBtn');
+const prOnly = document.getElementById('prOnly');
+const preset = document.getElementById('preset');
+const forceDemo = document.getElementById('forceDemo');
 const beep = document.getElementById('beep');
 
-let sound = true;
-soundBtn.onclick = ()=>{ sound = !sound; soundBtn.textContent = sound ? '🔔 ON' : '🔕 OFF' }
+let sound=true; soundBtn.onclick=()=>{sound=!sound; soundBtn.textContent = sound ? '🔔 ON' : '🔕 OFF';}
+forceDemo.onclick=()=>{ forcedDemo = true; statusEl.textContent='Demo forced'; scan(); }
 
-demoBtn.onclick = ()=>{ forcedDemo = true; statusEl.textContent='Demo forced by user'; scan(); }
-
+/* ========== local state ========== */
 let forcedDemo = false;
 let activeFeedURL = null;
-let pmh = {}, alerted = {};
+let pmh = JSON.parse(localStorage.getItem('pmh_counts')||'{}');
+let breakLog = JSON.parse(localStorage.getItem('pmh_break_log')||'[]');
+let alerted = {};
+let forcedRotate = false;
 
-/* ---------- demo fallback data ---------- */
+/* ========== demo fallback ========== */
 const demoFeed = [
   { symbol:'TWG', title:'TWG press release — product launch', url:'#', vol:1200000 },
   { symbol:'SMOVE', title:'SMOVE soars after news', url:'#', vol:800000 },
@@ -84,7 +95,44 @@ const demoFeed = [
   { symbol:'TRUE', title:'TRUE mentions strong results', url:'#', vol:250000 }
 ];
 
-/* ---------- try candidate feeds in order with timeout ---------- */
+/* ========== helpers ========== */
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function fetchWithTimeout(url, ms){
+  return new Promise((resolve,reject)=>{
+    const t = setTimeout(()=>{reject(new Error('timeout'))}, ms);
+    fetch(url,{cache:'no-store'}).then(r=>{ clearTimeout(t); resolve(r); }).catch(e=>{clearTimeout(t);reject(e)});
+  });
+}
+function savePMH(){ localStorage.setItem('pmh_counts', JSON.stringify(pmh)); }
+function logBreak(sym){
+  const entry = { sym, at: (new Date()).toISOString() };
+  breakLog.unshift(entry);
+  localStorage.setItem('pmh_break_log', JSON.stringify(breakLog.slice(0,200)));
+}
+
+/* ========== presets ========== */
+preset.addEventListener('change', ()=>{
+  const v = preset.value;
+  if(v==='safe'){ minVol.value=250000; showAll.checked=false; prOnly.checked=false; }
+  if(v==='aggressive'){ minVol.value=50000; showAll.checked=true; prOnly.checked=false; }
+  if(v==='pr'){ minVol.value=50000; showAll.checked=false; prOnly.checked=true; }
+  preset.value='';
+  scan();
+});
+
+/* ========== render ========== */
+function renderCard(sym,title,url,vol,cls,txt,quality,pmhCount){
+  const el = document.createElement('div'); el.className='card '+cls;
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between">
+    <div class="sym"><a target="_blank" href="https://www.tradingview.com/symbols/${encodeURIComponent(sym)}">${sym}</a> ${(vol?('$'+(vol).toLocaleString()):'')}</div>
+    <div class="quality">${quality}</div>
+  </div>
+  <div style="margin-top:8px">${url?`<a target="_blank" href="${url}">${title}</a>`:title}</div>
+  <div style="margin-top:8px;color:${cls==='hot'?'#22c55e':(cls==='warm'?'#eab308':'#9ca3af')}">Status: ${txt} ${pmhCount?(' | PMH:'+pmhCount):''}</div>`;
+  cards.appendChild(el);
+}
+
+/* ========== feed detection (try candidates) ========== */
 async function tryFeeds(){
   statusEl.textContent = 'Trying feeds…';
   prog.style.width = '0%';
@@ -93,77 +141,59 @@ async function tryFeeds(){
     statusEl.textContent = `Trying feed ${i+1}/${FEED_CANDIDATES.length}: ${url}`;
     prog.style.width = ((i/(FEED_CANDIDATES.length))*100)+'%';
     try{
-      const data = await fetchWithTimeout(url, 7000);
-      if(!data) throw new Error('no response');
-      // try parse json
-      try {
-        const parsed = await data.json();
-        if(Array.isArray(parsed) && parsed.length>0){
-          activeFeedURL = url;
-          statusEl.textContent = `Using worker: ${url}`;
-          prog.style.width = '100%';
-          return parsed;
-        }
-      } catch(e){ throw new Error('invalid json'); }
+      const r = await fetchWithTimeout(url,7000);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j = await r.json();
+      if(Array.isArray(j) && j.length>0){ activeFeedURL = url; prog.style.width='100%'; return j; }
     } catch(err){
-      // continue to next
-      statusEl.textContent = `Feed failed: ${url} (${err.message})`;
-      await sleep(300); // small pause before next
+      statusEl.textContent = `Failed: ${url} (${err.message})`;
+      await sleep(300);
       continue;
     }
   }
-  // none succeeded
-  statusEl.textContent = 'No live feed; using demo fallback';
   activeFeedURL = null;
-  prog.style.width = '100%';
+  prog.style.width='100%';
   return null;
 }
 
-/* small helper: fetch with timeout */
-function fetchWithTimeout(url, ms){
-  return new Promise((resolve, reject) => {
-    const id = setTimeout(()=>{ reject(new Error('timeout')) }, ms);
-    fetch(url, {cache:'no-store'}).then(res=>{
-      clearTimeout(id);
-      resolve(res);
-    }).catch(err=>{
-      clearTimeout(id);
-      reject(err);
-    })
-  });
+/* ========== quality scoring ========== */
+/* score 0-10 based on vol, keywords, and PMH */
+function qualityScore(title, vol, pmhCount){
+  let s=0;
+  if(vol >= 100000) s+=2;
+  if(vol >= 300000) s+=2;
+  const kws = ['surge','soar','soars','jump','press','announce','acquire','merger','results','beat','beats','up'];
+  for(const k of kws) if(title.toLowerCase().includes(k)) s+=1;
+  s += Math.min(3, Math.floor(pmhCount/2));
+  return Math.min(10, s);
 }
 
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-/* ---------- rendering ---------- */
-function renderCard(sym,title,url,vol,cls,txt){
-  const el = document.createElement('div');
-  el.className = 'card ' + cls;
-  el.innerHTML = `<div class="sym"><a target="_blank" href="https://www.tradingview.com/symbols/${encodeURIComponent(sym)}">${sym}</a> ${(vol?('$'+(vol).toLocaleString()):'')}</div>
-                  <div style="margin-top:8px">${url?`<a target="_blank" href="${url}">${title}</a>`:title}</div>
-                  <div style="margin-top:8px;color:${cls==='hot'?'#22c55e':(cls==='warm'?'#eab308':'#9ca3af')}">Status: ${txt}</div>`;
-  cards.appendChild(el);
+/* ========== PMH daily reset (local-midnight) ========== */
+function ensureDailyReset(){
+  const lastReset = localStorage.getItem('pmh_reset_date');
+  const today = new Date().toISOString().slice(0,10);
+  if(lastReset !== today){ pmh={}; localStorage.setItem('pmh_counts','{}'); localStorage.setItem('pmh_reset_date', today); breakLog = []; localStorage.setItem('pmh_break_log','[]'); }
 }
+ensureDailyReset();
+setInterval(()=>{ ensureDailyReset(); }, 60_000);
 
-/* ---------- main scan: attempts live, falls back to demo ---------- */
+/* ========== main scan ========== */
 async function scan(){
-  cards.innerHTML = '';
-  leaderEl.style.display = 'none';
-  prog.style.width = '0%';
-  statusEl.textContent = 'Scanning…';
+  cards.innerHTML=''; leaderEl.style.display='none'; prog.style.width='0%';
+  statusEl.textContent='Scanning…';
 
+  // get feed
   let items = null;
   if(!forcedDemo){
-    // if we already have activeFeedURL, try it first
+    // try active feed first
     if(activeFeedURL){
       try{
         const r = await fetchWithTimeout(activeFeedURL,7000);
-        const j = await r.json();
-        if(Array.isArray(j) && j.length) items = j;
-      }catch(e){
-        // clear active feed and try all candidates
-        activeFeedURL = null;
-      }
+        if(r.ok){
+          const j = await r.json();
+          if(Array.isArray(j) && j.length) items = j;
+        } else { activeFeedURL = null; }
+      }catch(e){ activeFeedURL = null; }
     }
     if(!items){
       const live = await tryFeeds();
@@ -173,58 +203,63 @@ async function scan(){
 
   if(!items) items = demoFeed;
 
-  let leaders = [], shown = 0;
-  for(let i=0;i<items.length;i++){
-    const it = items[i];
-    const sym = (it.symbol || (it.tickers&&it.tickers[0]) || it.ticker || it.symbol)?.toString().toUpperCase?.() || 'N/A';
-    const title = it.title || it.t || it.headline || 'No headline';
+  let leaders=[], shown=0;
+  for(let idx=0; idx<items.length; idx++){
+    const it = items[idx];
+    // normalize
+    const sym = (it.symbol || (it.tickers && it.tickers[0]) || it.ticker || '').toString().toUpperCase() || 'N/A';
+    const title = it.title || it.t || it.headline || '';
     const url = it.url || it.link || '#';
     const vol = it.vol || Math.floor(100000 + Math.random()*900000);
 
-    pmh[sym] = (pmh[sym]||0)+1;
-    const broke = pmh[sym] > 2;
+    // PR filter
+    const isPR = /press|press release|announc/i.test(title.toLowerCase());
+    if(prOnly.checked && !isPR) continue;
 
+    // pmh accounting
+    pmh[sym] = (pmh[sym]||0) + 1;
+    const pmhCount = pmh[sym];
+    if(pmhCount >= 3 && !breakLog.find(x=>x.sym===sym)) { logBreak(sym); } // log first break
+    savePMH();
+
+    // score
     let score = 0;
     if(vol >= (+minVol.value || 100000)) score++;
-    if(title.toLowerCase().includes('surge')||title.toLowerCase().includes('soar')||title.toLowerCase().includes('press')||title.toLowerCase().includes('jump')) score++;
-    if(broke) score++;
-
+    if(/surge|soar|soars|jump|up|spike|pop|rally|soaring/i.test(title)) score++;
+    if(pmhCount >= 2) score++;
+    // status class
     let cls='watch', txt='WATCH';
-    if(score==2){ cls='warm'; txt='WARM' }
-    if(score>=3){ cls='hot'; txt='HOT'; leaders.push(sym) }
+    if(score==2){ cls='warm'; txt='WARM'; }
+    if(score>=3){ cls='hot'; txt='HOT'; leaders.push(sym); }
 
+    // gating
     if(!showAll.checked && cls==='watch') continue;
     if(vol < (+minVol.value || 100000) && !showAll.checked) continue;
 
-    renderCard(sym,title,url,vol,cls,txt);
+    const q = qualityScore(title, vol, pmhCount);
+    renderCard(sym, title, url, vol, cls, txt, q, pmhCount);
     shown++;
 
-    if(cls==='hot' && !alerted[sym] && sound){
-      beep.play();
-      navigator.vibrate?.([200,100,200]);
-      alerted[sym] = 1;
-    }
+    if(cls==='hot' && !alerted[sym] && sound){ beep.play(); navigator.vibrate?.([200,100,200]); alerted[sym]=1; }
   }
 
-  if(leaders.length){
-    leaderEl.style.display = 'block';
-    leaderEl.textContent = 'Leaders: ' + [...new Set(leaders)].slice(0,5).join(' • ');
-  }
+  if(leaders.length){ leaderEl.style.display='block'; leaderEl.textContent = 'Leaders: ' + [...new Set(leaders)].slice(0,5).join(' • '); }
 
   statusEl.textContent = activeFeedURL ? `Live feed OK — ${shown} shown (via ${activeFeedURL})` : `Demo feed — ${shown} shown`;
 }
 
-/* ---------- lifecycle ---------- */
-scan();
-setInterval(scan,30000);
+/* ========== boot + interval + rotation ========== */
+(async ()=>{ await scan(); setInterval(scan,30000); })();
 
-/* ---------- wake lock best-effort ---------- */
-async function requestWakeLock(){
-  try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){}
-}
+/* rotate feeds automatically every 90s if activeFeedURL is null */
+setInterval(async ()=>{
+  if(!activeFeedURL && !forcedDemo){ await tryFeeds(); }
+}, 90_000);
+
+/* wake-lock best-effort */
+async function requestWakeLock(){ try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){} }
 requestWakeLock();
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') requestWakeLock(); });
-
 </script>
 </body>
 </html>
