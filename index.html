@@ -1,164 +1,267 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v4 (FMP stable)</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Penny Scanner v4 — Volume fix</title>
 <style>
-  :root{
-    --bg:#0f1720; --card:#0b1120; --muted:#9aa4b2; --accent:#00b894;
-    --hot:#16a085; --warm:#f39c12; --watch:#3498db; --text:#e6eef6;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-  }
-  body{margin:0;background:linear-gradient(#0b1220,#0e1724);color:var(--text);min-height:100vh;padding:18px;}
-  .wrap{max-width:900px;margin:0 auto;}
-  h1{font-size:34px;margin:4px 0 14px;}
-  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
-  .btn{background:#0e2430;padding:8px 12px;border-radius:12px;border:none;color:var(--text);cursor:pointer}
-  .pill{background:#0d1b25;padding:8px 12px;border-radius:12px;color:var(--text);display:inline-flex;align-items:center;gap:8px}
-  input[type="text"], input[type="number"], select{background:#0b1620;border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:8px}
-  .status{margin-top:6px;color:var(--muted);font-size:13px}
-  .bar{height:6px;background:linear-gradient(90deg,#2dd4bf,#60a5fa);border-radius:6px;margin:10px 0}
-  .card{background:var(--card);padding:16px;border-radius:12px;margin:12px 0;box-shadow:0 4px 20px rgba(0,0,0,0.5);position:relative}
-  .symbol{font-weight:800;color:#4fd1c5;font-size:20px}
-  .meta{color:var(--muted);margin-top:6px}
-  .statusTag{font-weight:700;margin-top:8px}
-  .leader{color:#00ffab;margin-bottom:6px}
-  pre.debug{background:#081018;color:#bfeaf0;padding:12px;border-radius:8px;overflow:auto;margin-top:12px;font-size:12px}
+  :root{--bg:#071025;--card:#0b1220;--muted:#99a6b3;--text:#e6eef6;--accent:#00d1a6}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;background:linear-gradient(#071025,#0b1220);color:var(--text);padding:18px}
+  h1{margin:0 0 12px;font-size:28px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .pill, .btn{background:#0e1b26;border-radius:12px;padding:8px 12px;color:var(--text);border:none}
+  input, select{background:#08121a;border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:8px;border-radius:8px}
   .small{font-size:13px;color:var(--muted)}
-  .chartLink{display:inline-block;margin-top:8px;color:#9ad7ff}
-  /* responsive */
-  @media (max-width:520px){h1{font-size:28px}.controls{gap:8px}}
+  .bar{height:6px;border-radius:6px;background:linear-gradient(90deg,#2dd4bf,#60a5fa);margin:10px 0;width:0%}
+  .card{background:var(--card);padding:14px;border-radius:10px;margin:10px 0;box-shadow:0 6px 20px rgba(0,0,0,0.45)}
+  .symbol{font-weight:800;color:#3ee0c6}
+  .meta{color:var(--muted);margin-top:6px}
+  .debug{background:#081018;padding:10px;border-radius:8px;color:#bfeaf0;white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:10px;font-family:monospace;font-size:13px}
+  .warn{color:#ffcc66}
+  @media (max-width:520px){h1{font-size:22px}}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Penny Scanner v4 (FMP stable)</h1>
+  <h1>📈 Penny Scanner v4 — Volume fix</h1>
 
-    <div class="controls">
-      <button id="toggleSound" class="pill">🔔 Sound: <span id="soundState">ON</span></button>
-      <label class="pill"><input id="showAll" type="checkbox" checked style="margin-right:8px"> Show All</label>
-      <label class="pill"><input id="prOnly" type="checkbox" style="margin-right:8px"> PR Only</label>
-      <input id="minVol" type="number" value="100000" style="width:120px" />
-      <button id="scanNow" class="btn">Scan Now</button>
-      <button id="forceDemo" class="btn">Force Demo</button>
-    </div>
-
-    <div class="small" id="feedInfo">Feed: — | Next scan: —</div>
-    <div class="bar" id="progress" style="width:0%"></div>
-
-    <div id="leaderLine" class="leader">Leader: —</div>
-
-    <div id="results"></div>
-
-    <div class="status" id="apiStatus">API Status: idle</div>
-
-    <pre class="debug" id="debugBox" style="display:none"></pre>
+  <div class="controls">
+    <button id="toggleSound" class="pill">🔔 Sound: <span id="soundState">ON</span></button>
+    <label class="pill"><input id="showAll" type="checkbox" checked style="margin-right:8px">Show All</label>
+    <label class="pill"><input id="prOnly" type="checkbox" style="margin-right:8px">PR Only</label>
+    <input id="minVol" type="number" value="100000" style="width:110px"/>
+    <button id="scanNow" class="btn">Scan Now</button>
+    <button id="forceDemo" class="btn">Force Demo</button>
   </div>
 
+  <div class="controls">
+    <label class="small">Prefetch Quotes:
+      <input id="prefetchToggle" type="checkbox" style="margin-left:6px" />
+    </label>
+    <label class="small">Top:
+      <input id="prefetchCount" type="number" value="3" style="width:60px;margin-left:6px"/>
+    </label>
+    <div style="flex:1"></div>
+    <div id="feedLine" class="small">Feed: — | Next scan: —</div>
+  </div>
+
+  <div class="bar" id="prog"></div>
+  <div id="leader" class="small" style="color:#00ffab;margin-top:6px">Leader: —</div>
+  <div id="results"></div>
+
+  <div id="apiStatus" class="small" style="margin-top:8px">API Status: idle</div>
+  <pre id="debug" class="debug" style="display:none"></pre>
+
 <script>
-/*
-  IMPORTANT:
-  1) Paste your FMP API key into API_KEY below (do NOT share it).
-  2) This file uses FMP stable endpoints (no legacy paths).
-*/
-
-const API_KEY = "D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ"; // <-- replace with your new key (keep the quotes)
-const SCAN_INTERVAL = 25 * 1000; // 25s between scans
-let feedIndex = 0;
-let useDemo = false;        // toggled by Force Demo
-let soundOn = true;
-let timer = null;
-let countdown = SCAN_INTERVAL;
-const debugBox = document.getElementById('debugBox');
-
-// FEEDS (stable endpoints)
+/* CONFIG */
+const API_KEY = "PASTE_YOUR_FMP_KEY_HERE"; // <-- put your new FMP key here
+const INTERVAL_MS = 25000; // scan every 25s
 const FEEDS = [
-  { name: 'gainers', label:'Top Gainers', url: `https://financialmodelingprep.com/stable/biggest-gainers?apikey=${API_KEY}` },
-  { name: 'most_active', label:'Most Active', url: `https://financialmodelingprep.com/stable/most-active?apikey=${API_KEY}` },
-  { name: 'press', label:'Press Releases', url: `https://financialmodelingprep.com/stable/press-releases?apikey=${API_KEY}` }
+  {label:'Top Gainers', url: `https://financialmodelingprep.com/stable/biggest-gainers?apikey=${API_KEY}`},
+  {label:'Most Active', url: `https://financialmodelingprep.com/stable/most-active?apikey=${API_KEY}`},
+  {label:'Press Releases', url: `https://financialmodelingprep.com/stable/press-releases?apikey=${API_KEY}`}
 ];
+// NOTE: quote endpoint used for per-symbol volume fetch
+const QUOTE_ENDPOINT = symbol => `https://financialmodelingprep.com/stable/quote/${encodeURIComponent(symbol)}?apikey=${API_KEY}`;
 
-// Demo data (fallback)
-const DEMO = [
-  { symbol:'SMOVE', price:3.42, volume:800000, title:'SMOVE surges after press release', status:'HOT' },
-  { symbol:'TWG', price:5.11, volume:1200000, title:'TWG launches new product', status:'WARM' },
-  { symbol:'DRCT', price:2.95, volume:450000, title:'DRCT heavy volume after announcement', status:'WARM' },
-  { symbol:'TRUE', price:1.88, volume:250000, title:'TRUE reports earnings', status:'WATCH' }
-];
-
+/* DOM */
 const resultsEl = document.getElementById('results');
 const apiStatusEl = document.getElementById('apiStatus');
-const feedInfoEl = document.getElementById('feedInfo');
-const progressEl = document.getElementById('progress');
-const leaderLineEl = document.getElementById('leaderLine');
+const debugEl = document.getElementById('debug');
+const prog = document.getElementById('prog');
+const feedLine = document.getElementById('feedLine');
+const leaderEl = document.getElementById('leader');
 
-document.getElementById('scanNow').addEventListener('click', runScanImmediate);
-document.getElementById('forceDemo').addEventListener('click', ()=>{ useDemo = true; showToast('Demo forced'); runScanImmediate(); });
-document.getElementById('toggleSound').addEventListener('click', ()=>{ soundOn=!soundOn; document.getElementById('soundState').innerText=soundOn?'ON':'OFF'});
+let feedIndex = 0;
+let timer = null;
+let useDemo = false;
+let soundOn = true;
 
-function showToast(msg){
-  apiStatusEl.innerText = "Status: "+msg;
+document.getElementById('toggleSound').onclick = ()=>{
+  soundOn = !soundOn;
+  document.getElementById('soundState').innerText = soundOn ? 'ON':'OFF';
+};
+document.getElementById('scanNow').onclick = runScanImmediate;
+document.getElementById('forceDemo').onclick = ()=>{ useDemo=true; runScanImmediate(); };
+
+function setProgress(p){ prog.style.width = Math.max(0,Math.min(100,p)) + '%'; }
+function showDebug(txt){ debugEl.style.display='block'; debugEl.textContent = txt; }
+function hideDebug(){ debugEl.style.display='none'; debugEl.textContent = ''; }
+
+function normalizeVol(obj){
+  // try many common fields
+  return Number(obj.volume || obj.totalVolume || obj.latestVolume || obj.avgVolume || obj.dayVolume || obj.total_volume || obj.v || obj.vol || 0) || 0;
 }
 
-async function fetchFeed(feed){
-  if(useDemo) throw new Error('demo forced');
-  try{
-    const res = await fetch(feed.url, { cache: 'no-store' });
-    const status = res.status;
-    if(status !== 200){
-      const text = await res.text();
-      throw { status, bodyText: text };
-    }
-    const data = await res.json();
-    return { ok:true, data, rawResponse:null };
-  }catch(err){
-    return { ok:false, error:err };
-  }
+async function fetchJson(url){
+  const res = await fetch(url, {cache:'no-store'});
+  const txt = await res.text();
+  try{ return {ok:res.ok, status:res.status, json: JSON.parse(txt), raw:txt}; }
+  catch(e){ return {ok:res.ok, status:res.status, json:null, raw:txt}; }
 }
 
-function renderCards(items, feedName){
-  resultsEl.innerHTML = '';
-  if(!items || items.length === 0){
-    resultsEl.innerHTML = '<div class="card small">No results.</div>';
+async function doOneFeed(){
+  if(!API_KEY || API_KEY.includes('PASTE_YOUR')) {
+    apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP key into the file.';
+    showDemo();
     return;
   }
-  // compute leader (highest volume)
-  let leaderSymbol = null;
-  let bestVol = 0;
-  items.forEach(i=>{
-    if(i.volume && i.volume>bestVol){ bestVol=i.volume; leaderSymbol = i.symbol || i.ticker || i.name; }
+
+  const feed = FEEDS[ feedIndex % FEEDS.length ];
+  feedLine.innerText = `Feed: ${feed.label} | Next scan: ${INTERVAL_MS/1000}s`;
+  setProgress(20);
+  apiStatusEl.innerText = `API Status: fetching ${feed.label}...`;
+
+  const r = await fetchJson(feed.url);
+  setProgress(50);
+
+  if(!r.ok){
+    // show error text and try next feed fallback
+    showDebug(`HTTP ${r.status}\n\n${r.raw}`);
+    apiStatusEl.innerText = `API Status: HTTP ${r.status} — trying alt feeds or demo`;
+    // try other feeds quickly
+    for(let i=0;i<FEEDS.length;i++){
+      if(i === (feedIndex % FEEDS.length)) continue;
+      const alt = FEEDS[i];
+      const rr = await fetchJson(alt.url);
+      if(rr.ok){
+        hideDebug();
+        renderFromRaw(rr.json, alt.label);
+        feedIndex = i; // move to alt
+        setProgress(100);
+        return;
+      }
+    }
+    // else demo
+    showDemo();
+    setProgress(100);
+    return;
+  }
+
+  hideDebug();
+  apiStatusEl.innerText = `API Status: LIVE (${feed.label})`;
+  // normalize and render
+  renderFromRaw(r.json, feed.label);
+  setProgress(100);
+}
+
+function showDemo(){
+  const demo = [
+    {symbol:'SMOVE', price:3.42, volume:800000, title:'SMOVE surges after press release'},
+    {symbol:'TWG', price:5.11, volume:1200000, title:'TWG launches new product'},
+    {symbol:'DRCT', price:2.95, volume:450000, title:'DRCT heavy volume after announcement'},
+    {symbol:'TRUE', price:1.88, volume:250000, title:'TRUE reports earnings'}
+  ];
+  renderList(demo, 'Demo');
+  apiStatusEl.innerText = 'API Status: DEMO (live failed)';
+}
+
+function renderFromRaw(raw, feedLabel){
+  // raw might be an object with data array or an array
+  let arr = [];
+  if(Array.isArray(raw)) arr = raw;
+  else if(raw && raw.data) arr = raw.data;
+  else if(raw && typeof raw === 'object') {
+    // sometimes feed uses keyed object; try to convert
+    arr = Object.values(raw);
+  } else arr = [];
+
+  // map to common fields
+  const mapped = arr.map(item=>{
+    // FMP feed shapes vary; pick likely fields
+    const symbol = item.symbol || item.ticker || item.code || item[0] || '';
+    const price = item.price || item.close || item.last || (item.quote && item.quote.price) || 0;
+    const vol = normalizeVol(item);
+    const title = item.name || item.companyName || item.title || item.text || item.description || '';
+    return { symbol, price, volume: vol, title, raw: item };
   });
-  leaderLineEl.innerText = 'Leader: '+(leaderSymbol||'—');
 
-  items.forEach(it=>{
-    // normalize
-    const sym = it.symbol || it.ticker || (it.name && it.name.slice(0,6));
-    const title = it.title || it.text || it.description || it.name || (it.symbol?`${it.symbol}`:'');
-    const price = (it.price || it.close || it.last || 0);
-    const vol = it.volume || it.totalVolume || it.totalVolumeTraded || 0;
-    // filters
-    const minVol = Number(document.getElementById('minVol').value || 0);
-    const prOnly = document.getElementById('prOnly').checked;
-    // if press feed, treat as press release
-    const isPress = (feedName === 'press') || /press|release/i.test(title);
-    if(prOnly && !isPress) return;
-    if(minVol && vol < minVol && !document.getElementById('showAll').checked) return;
+  // If volumes are zero and prefetch enabled -> fetch per-symbol quotes for top N
+  const prefetch = document.getElementById('prefetchToggle').checked;
+  const prefetchCount = Math.max(0,Number(document.getElementById('prefetchCount').value || 0));
+  if(prefetch && prefetchCount > 0){
+    // pick top N symbols (first N in mapped)
+    fetchQuotesForTopN(mapped.slice(0,prefetchCount)).then(updated => {
+      // merge updated volumes back
+      const merged = mapped.map(m=>{
+        const u = updated.find(x=>x.symbol === m.symbol);
+        return u ? {...m, volume: (u.volume || m.volume)} : m;
+      });
+      renderList(merged, feedLabel);
+    }).catch(err=>{
+      console.warn('prefetch failed',err);
+      renderList(mapped, feedLabel);
+    });
+  } else {
+    renderList(mapped, feedLabel);
+  }
+}
 
-    const status = (it.status || it.sentiment || it.trend || (vol>1000000?'HOT':(vol>400000?'WARM':'WATCH')) ).toUpperCase();
+async function fetchQuotesForTopN(list){
+  // careful — per-symbol calls consume rate limit. keep N small.
+  const out = [];
+  for(const it of list){
+    if(!it.symbol) { out.push(it); continue; }
+    try{
+      const url = QUOTE_ENDPOINT(it.symbol);
+      const r = await fetchJson(url);
+      if(r.ok && Array.isArray(r.json) && r.json[0]){
+        const q = r.json[0];
+        const vol = normalizeVol(q);
+        out.push({ symbol: it.symbol, volume: vol, price: q.price || it.price });
+      } else {
+        out.push(it);
+      }
+    }catch(e){
+      out.push(it);
+    }
+    // small delay to reduce burst
+    await new Promise(res=>setTimeout(res, 250));
+  }
+  return out;
+}
 
+function renderList(items, sourceLabel){
+  resultsEl.innerHTML = '';
+  const minVol = Number(document.getElementById('minVol').value || 0);
+  const prOnly = document.getElementById('prOnly').checked;
+  const showAll = document.getElementById('showAll').checked;
+
+  // optionally filter PR only (we check title for 'press' keywords)
+  const filtered = items.filter(it=>{
+    if(!it) return false;
+    const isPress = /press|release|announc/i.test(it.title || '');
+    if(prOnly && !isPress) return false;
+    if(!showAll && minVol && (it.volume || 0) < minVol) return false;
+    return true;
+  });
+
+  if(filtered.length === 0){
+    resultsEl.innerHTML = '<div class="card small">No stocks match filters</div>';
+    leaderEl.innerText = 'Leader: —';
+    return;
+  }
+
+  // leader = highest volume
+  const leader = filtered.reduce((acc,cur)=> (cur.volume> (acc.volume||0) ? cur : acc), filtered[0]);
+  leaderEl.innerText = 'Leader: ' + (leader.symbol || '—');
+
+  filtered.forEach(it=>{
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <div class="symbol">${sym} <span style="color:#9ad7ff;font-weight:700">\$${formatPrice(price)}</span></div>
-      <div class="meta">${escapeHtml(title)}</div>
-      <div class="meta">Vol: ${formatVol(vol)} | Status: <span class="statusTag">${status}</span></div>
-      <a href="#" class="chartLink" data-symbol="${sym}">📈 Chart</a>
-    `;
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><div class="symbol">${escapeHtml(it.symbol)} <span style="color:#9ad7ff;font-weight:700">\$${formatPrice(it.price)}</span></div>
+        <div class="meta">${escapeHtml(it.title)}</div>
+        <div class="meta">Vol: ${formatVol(it.volume)} | Status: <strong>${statusFromVol(it.volume)}</strong></div></div>
+        <div><a class="chartLink" href="https://finance.yahoo.com/quote/${encodeURIComponent(it.symbol)}/chart" target="_blank">📈 Chart</a></div>
+      </div>`;
     resultsEl.appendChild(card);
   });
+
+  apiStatusEl.innerText = `API Status: ${sourceLabel} | ${filtered.length} shown`;
 }
 
+/* helpers */
 function formatVol(v){
   if(!v) return '0';
   if(v>=1e9) return (v/1e9).toFixed(2)+'B';
@@ -166,124 +269,39 @@ function formatVol(v){
   if(v>=1e3) return (v/1e3).toFixed(0)+'K';
   return v;
 }
-function formatPrice(p){ return p?Number(p).toFixed(2):'0.00'; }
+function formatPrice(p){return p?Number(p).toFixed(2):'0.00'}
+function statusFromVol(v){ if(v>1e6) return 'HOT'; if(v>4e5) return 'WARM'; return 'WATCH' }
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-async function doRotation(){
-  const feed = FEEDS[feedIndex % FEEDS.length];
-  feedInfoEl.innerText = `Feed: ${feed.label} | Next scan: ${(SCAN_INTERVAL/1000)}s`;
-  progressEl.style.width = '20%';
-  apiStatusEl.innerText = 'API Status: fetching '+feed.label;
-  // attempt to fetch the feed
-  const r = await fetchFeed(feed);
-  if(!r.ok){
-    // try fallback order: try next feed or show demo
-    debugBox.style.display='block';
-    let errText = '';
-    if(r.error && r.error.status){
-      errText = `HTTP ${r.error.status}\n${r.error.bodyText||r.error.message||''}`;
-    }else{
-      errText = (r.error && r.error.message) ? r.error.message : 'Fetch failed';
-    }
-    debugBox.innerText = JSON.stringify({ error: errText }, null, 2);
-    apiStatusEl.innerText = `API Status: HTTP ${r.error && r.error.status || 'ERR'} | demo active`;
-    // fallback: try other feeds once
-    let tried = 0, handled=false;
-    for(let i=0;i<FEEDS.length;i++){
-      if(i===feedIndex) continue;
-      const alt = FEEDS[i];
-      const rr = await fetchFeed(alt);
-      if(rr.ok){
-        renderFromRaw(rr.data, alt.name);
-        handled=true;
-        feedIndex = i; // move index to alt
-        break;
-      }
-      tried++;
-    }
-    if(!handled){
-      // show demo
-      showDemo();
-    }
-  } else {
-    debugBox.style.display='none';
-    apiStatusEl.innerText = `API Status: LIVE (${feed.label})`;
-    renderFromRaw(r.data, feed.name);
-  }
-  // rotate feed index
-  feedIndex++;
-  progressEl.style.width = '100%';
-}
-
-function renderFromRaw(data, feedName){
-  // data shape differs per feed; normalize to array of {symbol, price, volume, title}
-  let arr = [];
-  try{
-    if(!data) data=[];
-    if(feedName === 'gainers'){
-      // data expected as array of objects with symbol, price, changesPercentage, volume
-      arr = data.map(d=>({ symbol:d.symbol, price:d.price || d.close, volume:d.volume || d.totalVolume, title: d.name || d.companyName || `Gainer ${d.symbol}` }));
-    } else if(feedName === 'most_active'){
-      arr = data.map(d=>({ symbol:d.symbol, price:d.price || d.close, volume:d.volume || d.totalVolume, title:d.name || d.companyName || '' }));
-    } else if(feedName === 'press'){
-      // press returns objects with symbol, text, title
-      arr = data.map(d=>({ symbol:d.symbol||d.ticker, price: d.price||0, volume: d.totalVolume||0, title: d.title || d.text || d.description }));
-    } else {
-      // generic fallback
-      arr = Array.isArray(data)?data.slice(0,50):[];
-    }
-  }catch(e){
-    arr = [];
-  }
-  renderCards(arr, feedName);
-}
-
-// Demo display
-function showDemo(){
-  renderCards(DEMO, 'demo');
-  apiStatusEl.innerText = 'API Status: DEMO (live fetch failed)';
-}
-
-// scan loop
-async function scanLoop(){
-  try{
-    await doRotation();
-  }catch(err){
-    console.error(err);
+function runLoop(){
+  setProgress(0);
+  doOneFeed().catch(e=>{
+    console.error(e);
     showDemo();
-  } finally {
-    // schedule next scan
+  }).finally(()=>{
+    // schedule next rotation
+    feedIndex++;
     clearTimeout(timer);
-    timer = setTimeout(scanLoop, SCAN_INTERVAL);
-    // reset demo flag (forceDemo keeps it until toggled off)
-  }
+    timer = setTimeout(runLoop, INTERVAL_MS);
+    // animate progress to next
+    let t=0; const step = 1000; const total = INTERVAL_MS;
+    const interval = setInterval(()=>{
+      t += step;
+      const pct = Math.min(100, Math.round((t/total)*100));
+      setProgress(pct);
+      if(t>=total) clearInterval(interval);
+    }, step);
+  });
 }
+function runScanImmediate(){ clearTimeout(timer); runLoop(); }
 
-function runScanImmediate(){
-  clearTimeout(timer);
-  scanLoop();
-}
-
-// helper: if user forgot API key we show message
-if(!API_KEY || API_KEY.includes('PASTE_YOUR')){
-  apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP API key into API_KEY in the file.';
+// start
+if(!API_KEY || API_KEY.includes('PASTE_YOUR')) {
+  apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP key into API_KEY in the file.';
   showDemo();
 } else {
-  // start scanning immediately
-  runScanImmediate();
+  runLoop();
 }
-
-// keyboard-friendly: click chart
-resultsEl.addEventListener('click', (e)=>{
-  const a = e.target.closest('.chartLink');
-  if(!a) return;
-  e.preventDefault();
-  const sym = a.dataset.symbol;
-  if(!sym) return;
-  // open a simple TradingView chart or Yahoo (we keep it simple)
-  const url = `https://finance.yahoo.com/quote/${encodeURIComponent(sym)}/chart`;
-  window.open(url,'_blank');
-});
 
 </script>
 </body>
