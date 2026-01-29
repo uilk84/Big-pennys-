@@ -1,158 +1,289 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v4 — Debug</title>
+<title>Penny Scanner v4 (FMP stable)</title>
 <style>
-body{font-family:Arial,Helvetica,sans-serif;background:#071025;color:#e6eef8;margin:0;padding:16px}
-h1{margin:0 0 12px}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.controls input, .controls button{padding:8px;border-radius:8px;border:none;background:#0f1a2b;color:#e6eef8}
-.card{background:#0b1320;padding:12px;border-radius:10px;margin-bottom:10px;border-left:6px solid #555}
-.hot{border-left-color:#00ff99} .warm{border-left-color:#ffb703} .watch{border-left-color:#64b5f6}
-.small{color:#9aa7bf;font-size:13px}
-.debug{background:#081826;padding:10px;border-radius:8px;color:#cfe9ff;font-family:monospace;white-space:pre-wrap;max-height:220px;overflow:auto;border:1px solid rgba(255,255,255,0.03)}
-.progress{height:6px;background:#132334;border-radius:6px;overflow:hidden;margin:10px 0}
-.bar{height:100%;width:0;background:linear-gradient(90deg,#00e0c6,#3b82f6)}
+  :root{
+    --bg:#0f1720; --card:#0b1120; --muted:#9aa4b2; --accent:#00b894;
+    --hot:#16a085; --warm:#f39c12; --watch:#3498db; --text:#e6eef6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  body{margin:0;background:linear-gradient(#0b1220,#0e1724);color:var(--text);min-height:100vh;padding:18px;}
+  .wrap{max-width:900px;margin:0 auto;}
+  h1{font-size:34px;margin:4px 0 14px;}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .btn{background:#0e2430;padding:8px 12px;border-radius:12px;border:none;color:var(--text);cursor:pointer}
+  .pill{background:#0d1b25;padding:8px 12px;border-radius:12px;color:var(--text);display:inline-flex;align-items:center;gap:8px}
+  input[type="text"], input[type="number"], select{background:#0b1620;border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:8px}
+  .status{margin-top:6px;color:var(--muted);font-size:13px}
+  .bar{height:6px;background:linear-gradient(90deg,#2dd4bf,#60a5fa);border-radius:6px;margin:10px 0}
+  .card{background:var(--card);padding:16px;border-radius:12px;margin:12px 0;box-shadow:0 4px 20px rgba(0,0,0,0.5);position:relative}
+  .symbol{font-weight:800;color:#4fd1c5;font-size:20px}
+  .meta{color:var(--muted);margin-top:6px}
+  .statusTag{font-weight:700;margin-top:8px}
+  .leader{color:#00ffab;margin-bottom:6px}
+  pre.debug{background:#081018;color:#bfeaf0;padding:12px;border-radius:8px;overflow:auto;margin-top:12px;font-size:12px}
+  .small{font-size:13px;color:var(--muted)}
+  .chartLink{display:inline-block;margin-top:8px;color:#9ad7ff}
+  /* responsive */
+  @media (max-width:520px){h1{font-size:28px}.controls{gap:8px}}
 </style>
 </head>
 <body>
-<h1>📈 Penny Scanner v4 — Debug</h1>
+  <div class="wrap">
+    <h1>Penny Scanner v4 (FMP stable)</h1>
 
-<div class="controls">
-<button id="soundBtn">🔔 Sound: <span id="soundState">ON</span></button>
-<input id="minVol" type="number" value="100000" />
-<label><input id="showAll" type="checkbox" checked /> Show All</label>
-<label><input id="prOnly" type="checkbox" /> PR Only</label>
-<button id="scanBtn">Scan Now</button>
-</div>
+    <div class="controls">
+      <button id="toggleSound" class="pill">🔔 Sound: <span id="soundState">ON</span></button>
+      <label class="pill"><input id="showAll" type="checkbox" checked style="margin-right:8px"> Show All</label>
+      <label class="pill"><input id="prOnly" type="checkbox" style="margin-right:8px"> PR Only</label>
+      <input id="minVol" type="number" value="100000" style="width:120px" />
+      <button id="scanNow" class="btn">Scan Now</button>
+      <button id="forceDemo" class="btn">Force Demo</button>
+    </div>
 
-<div id="status" class="small">Status: ready</div>
-<div class="progress"><div id="bar" class="bar"></div></div>
-<div id="leader" class="small"></div>
+    <div class="small" id="feedInfo">Feed: — | Next scan: —</div>
+    <div class="bar" id="progress" style="width:0%"></div>
 
-<div id="results"></div>
+    <div id="leaderLine" class="leader">Leader: —</div>
 
-<h3 class="small">API Status / Debug</h3>
-<div id="apiStatus" class="small">API Status: (not checked)</div>
-<div id="rawResponse" class="debug">Raw API Response will show here (paste screenshot if it fails)</div>
+    <div id="results"></div>
 
-<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <div class="status" id="apiStatus">API Status: idle</div>
+
+    <pre class="debug" id="debugBox" style="display:none"></pre>
+  </div>
 
 <script>
-// === CONFIG - paste your key here ===
-const API_KEY = "D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ"; // <-- put your new key here
-const FMP_BASE = "https://financialmodelingprep.com/api/v3/stock_market/gainers";
-const FMP_URL = FMP_BASE + "?apikey=" + API_KEY;
+/*
+  IMPORTANT:
+  1) Paste your FMP API key into API_KEY below (do NOT share it).
+  2) This file uses FMP stable endpoints (no legacy paths).
+*/
 
-// === UI refs
-const statusEl = document.getElementById('status');
-const apiStatusEl = document.getElementById('apiStatus');
-const rawEl = document.getElementById('rawResponse');
+const API_KEY = "D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ"; // <-- replace with your new key (keep the quotes)
+const SCAN_INTERVAL = 25 * 1000; // 25s between scans
+let feedIndex = 0;
+let useDemo = false;        // toggled by Force Demo
+let soundOn = true;
+let timer = null;
+let countdown = SCAN_INTERVAL;
+const debugBox = document.getElementById('debugBox');
+
+// FEEDS (stable endpoints)
+const FEEDS = [
+  { name: 'gainers', label:'Top Gainers', url: `https://financialmodelingprep.com/stable/biggest-gainers?apikey=${API_KEY}` },
+  { name: 'most_active', label:'Most Active', url: `https://financialmodelingprep.com/stable/most-active?apikey=${API_KEY}` },
+  { name: 'press', label:'Press Releases', url: `https://financialmodelingprep.com/stable/press-releases?apikey=${API_KEY}` }
+];
+
+// Demo data (fallback)
+const DEMO = [
+  { symbol:'SMOVE', price:3.42, volume:800000, title:'SMOVE surges after press release', status:'HOT' },
+  { symbol:'TWG', price:5.11, volume:1200000, title:'TWG launches new product', status:'WARM' },
+  { symbol:'DRCT', price:2.95, volume:450000, title:'DRCT heavy volume after announcement', status:'WARM' },
+  { symbol:'TRUE', price:1.88, volume:250000, title:'TRUE reports earnings', status:'WATCH' }
+];
+
 const resultsEl = document.getElementById('results');
-const leaderEl = document.getElementById('leader');
-const bar = document.getElementById('bar');
-const beep = document.getElementById('beep');
+const apiStatusEl = document.getElementById('apiStatus');
+const feedInfoEl = document.getElementById('feedInfo');
+const progressEl = document.getElementById('progress');
+const leaderLineEl = document.getElementById('leaderLine');
 
-let sound=true;
-document.getElementById('soundBtn').onclick = ()=>{
-  sound = !sound;
-  document.getElementById('soundState').innerText = sound ? 'ON':'OFF';
-};
-document.getElementById('scanBtn').onclick = ()=> scanNow();
+document.getElementById('scanNow').addEventListener('click', runScanImmediate);
+document.getElementById('forceDemo').addEventListener('click', ()=>{ useDemo = true; showToast('Demo forced'); runScanImmediate(); });
+document.getElementById('toggleSound').addEventListener('click', ()=>{ soundOn=!soundOn; document.getElementById('soundState').innerText=soundOn?'ON':'OFF'});
 
-let progress=0;
-function animateProgress(){
-  progress = Math.min(100, progress + 6);
-  bar.style.width = progress + "%";
-  if(progress < 100) setTimeout(animateProgress, 160);
+function showToast(msg){
+  apiStatusEl.innerText = "Status: "+msg;
 }
 
-async function scanNow(){
-  progress = 0; bar.style.width='0%';
-  animateProgress();
-  statusEl.textContent = "Status: scanning...";
-  try {
-    // add cache-bust param
-    const url = FMP_URL + "&t=" + Date.now();
-    const res = await fetch(url, {cache:'no-store'});
-    const text = await res.text();
-    apiStatusEl.textContent = `API Status: HTTP ${res.status} ${res.statusText}`;
-    rawEl.textContent = text.slice(0,2000);
-    // if not OK, fallback to demo
-    if(!res.ok) {
-      statusEl.textContent = "Status: API failed — using DEMO";
-      renderDemo();
-      return;
+async function fetchFeed(feed){
+  if(useDemo) throw new Error('demo forced');
+  try{
+    const res = await fetch(feed.url, { cache: 'no-store' });
+    const status = res.status;
+    if(status !== 200){
+      const text = await res.text();
+      throw { status, bodyText: text };
     }
-    // parse JSON
-    let json;
-    try { json = JSON.parse(text); } catch(e) {
-      statusEl.textContent = "Status: JSON parse failed — using DEMO";
-      renderDemo();
-      return;
-    }
-    // Good data -> render
-    statusEl.textContent = "Status: LIVE feed OK";
-    renderList(json, "FMP live");
-  } catch(err){
-    apiStatusEl.textContent = `API Error: ${err.message||err}`;
-    rawEl.textContent = String(err.stack || err.message || err);
-    statusEl.textContent = "Status: fetch error — using DEMO";
-    renderDemo();
+    const data = await res.json();
+    return { ok:true, data, rawResponse:null };
+  }catch(err){
+    return { ok:false, error:err };
   }
 }
 
-function renderDemo(){
-  const demo = [
-    {symbol:"SMOVE", price:3.42, volume:800000, name:"SMOVE surges after press release"},
-    {symbol:"TWG", price:5.11, volume:1200000, name:"TWG launches new product"},
-    {symbol:"DRCT", price:2.95, volume:450000, name:"DRCT heavy volume after announcement"},
-    {symbol:"TRUE", price:1.88, volume:250000, name:"TRUE reports earnings"}
-  ];
-  renderList(demo, "Demo");
-  apiStatusEl.textContent += " | demo active";
-}
-
-function renderList(items, source){
-  resultsEl.innerHTML = "";
-  const minVol = Number(document.getElementById('minVol').value || 0);
-  const prOnly = document.getElementById('prOnly').checked;
-  const showAll = document.getElementById('showAll').checked;
-  const filtered = (items || []).filter(s => (s.volume || s.volume === 0 ? s.volume : (s.volume || s.v || 0)) >= minVol);
-
-  const display = showAll ? filtered : filtered.slice(0,10);
-  if(display.length === 0) {
-    resultsEl.innerHTML = '<div class="small">No stocks match filters</div>';
-    leaderEl.textContent = "Leader: none";
+function renderCards(items, feedName){
+  resultsEl.innerHTML = '';
+  if(!items || items.length === 0){
+    resultsEl.innerHTML = '<div class="card small">No results.</div>';
     return;
   }
-  leaderEl.textContent = "Leader: " + (display[0].symbol || display[0].ticker || 'N/A');
+  // compute leader (highest volume)
+  let leaderSymbol = null;
+  let bestVol = 0;
+  items.forEach(i=>{
+    if(i.volume && i.volume>bestVol){ bestVol=i.volume; leaderSymbol = i.symbol || i.ticker || i.name; }
+  });
+  leaderLineEl.innerText = 'Leader: '+(leaderSymbol||'—');
 
-  display.forEach((s, i) => {
-    const sym = s.symbol || s.ticker || s.code || '';
-    const price = s.price || s.currentPrice || s.last || 0;
-    const vol = s.volume || s.v || 0;
-    const title = s.name || s.companyName || s.title || '';
-    let cls='watch';
-    if(vol > 700000) cls='hot';
-    else if(vol > 400000) cls='warm';
+  items.forEach(it=>{
+    // normalize
+    const sym = it.symbol || it.ticker || (it.name && it.name.slice(0,6));
+    const title = it.title || it.text || it.description || it.name || (it.symbol?`${it.symbol}`:'');
+    const price = (it.price || it.close || it.last || 0);
+    const vol = it.volume || it.totalVolume || it.totalVolumeTraded || 0;
+    // filters
+    const minVol = Number(document.getElementById('minVol').value || 0);
+    const prOnly = document.getElementById('prOnly').checked;
+    // if press feed, treat as press release
+    const isPress = (feedName === 'press') || /press|release/i.test(title);
+    if(prOnly && !isPress) return;
+    if(minVol && vol < minVol && !document.getElementById('showAll').checked) return;
+
+    const status = (it.status || it.sentiment || it.trend || (vol>1000000?'HOT':(vol>400000?'WARM':'WATCH')) ).toUpperCase();
+
     const card = document.createElement('div');
-    card.className = 'card ' + cls;
-    card.innerHTML = `<div style="font-weight:700">${sym} $${Number(price).toFixed(2)}</div>
-                      <div class="small">Vol: ${Number(vol).toLocaleString()}</div>
-                      <div class="small">${title}</div>
-                      <div style="margin-top:8px;font-weight:700">${cls.toUpperCase()}</div>
-                      <div style="margin-top:6px"><a href="https://finance.yahoo.com/quote/${sym}" target="_blank" style="color:#8ed1ff">Chart</a></div>`;
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="symbol">${sym} <span style="color:#9ad7ff;font-weight:700">\$${formatPrice(price)}</span></div>
+      <div class="meta">${escapeHtml(title)}</div>
+      <div class="meta">Vol: ${formatVol(vol)} | Status: <span class="statusTag">${status}</span></div>
+      <a href="#" class="chartLink" data-symbol="${sym}">📈 Chart</a>
+    `;
     resultsEl.appendChild(card);
-    if(cls === 'hot' && sound) { try{ beep.play(); navigator.vibrate?.(100); }catch(e){} }
   });
 }
 
-// initial
-scanNow();
-setInterval(scanNow, 30000);
+function formatVol(v){
+  if(!v) return '0';
+  if(v>=1e9) return (v/1e9).toFixed(2)+'B';
+  if(v>=1e6) return (v/1e6).toFixed(2)+'M';
+  if(v>=1e3) return (v/1e3).toFixed(0)+'K';
+  return v;
+}
+function formatPrice(p){ return p?Number(p).toFixed(2):'0.00'; }
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function doRotation(){
+  const feed = FEEDS[feedIndex % FEEDS.length];
+  feedInfoEl.innerText = `Feed: ${feed.label} | Next scan: ${(SCAN_INTERVAL/1000)}s`;
+  progressEl.style.width = '20%';
+  apiStatusEl.innerText = 'API Status: fetching '+feed.label;
+  // attempt to fetch the feed
+  const r = await fetchFeed(feed);
+  if(!r.ok){
+    // try fallback order: try next feed or show demo
+    debugBox.style.display='block';
+    let errText = '';
+    if(r.error && r.error.status){
+      errText = `HTTP ${r.error.status}\n${r.error.bodyText||r.error.message||''}`;
+    }else{
+      errText = (r.error && r.error.message) ? r.error.message : 'Fetch failed';
+    }
+    debugBox.innerText = JSON.stringify({ error: errText }, null, 2);
+    apiStatusEl.innerText = `API Status: HTTP ${r.error && r.error.status || 'ERR'} | demo active`;
+    // fallback: try other feeds once
+    let tried = 0, handled=false;
+    for(let i=0;i<FEEDS.length;i++){
+      if(i===feedIndex) continue;
+      const alt = FEEDS[i];
+      const rr = await fetchFeed(alt);
+      if(rr.ok){
+        renderFromRaw(rr.data, alt.name);
+        handled=true;
+        feedIndex = i; // move index to alt
+        break;
+      }
+      tried++;
+    }
+    if(!handled){
+      // show demo
+      showDemo();
+    }
+  } else {
+    debugBox.style.display='none';
+    apiStatusEl.innerText = `API Status: LIVE (${feed.label})`;
+    renderFromRaw(r.data, feed.name);
+  }
+  // rotate feed index
+  feedIndex++;
+  progressEl.style.width = '100%';
+}
+
+function renderFromRaw(data, feedName){
+  // data shape differs per feed; normalize to array of {symbol, price, volume, title}
+  let arr = [];
+  try{
+    if(!data) data=[];
+    if(feedName === 'gainers'){
+      // data expected as array of objects with symbol, price, changesPercentage, volume
+      arr = data.map(d=>({ symbol:d.symbol, price:d.price || d.close, volume:d.volume || d.totalVolume, title: d.name || d.companyName || `Gainer ${d.symbol}` }));
+    } else if(feedName === 'most_active'){
+      arr = data.map(d=>({ symbol:d.symbol, price:d.price || d.close, volume:d.volume || d.totalVolume, title:d.name || d.companyName || '' }));
+    } else if(feedName === 'press'){
+      // press returns objects with symbol, text, title
+      arr = data.map(d=>({ symbol:d.symbol||d.ticker, price: d.price||0, volume: d.totalVolume||0, title: d.title || d.text || d.description }));
+    } else {
+      // generic fallback
+      arr = Array.isArray(data)?data.slice(0,50):[];
+    }
+  }catch(e){
+    arr = [];
+  }
+  renderCards(arr, feedName);
+}
+
+// Demo display
+function showDemo(){
+  renderCards(DEMO, 'demo');
+  apiStatusEl.innerText = 'API Status: DEMO (live fetch failed)';
+}
+
+// scan loop
+async function scanLoop(){
+  try{
+    await doRotation();
+  }catch(err){
+    console.error(err);
+    showDemo();
+  } finally {
+    // schedule next scan
+    clearTimeout(timer);
+    timer = setTimeout(scanLoop, SCAN_INTERVAL);
+    // reset demo flag (forceDemo keeps it until toggled off)
+  }
+}
+
+function runScanImmediate(){
+  clearTimeout(timer);
+  scanLoop();
+}
+
+// helper: if user forgot API key we show message
+if(!API_KEY || API_KEY.includes('PASTE_YOUR')){
+  apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP API key into API_KEY in the file.';
+  showDemo();
+} else {
+  // start scanning immediately
+  runScanImmediate();
+}
+
+// keyboard-friendly: click chart
+resultsEl.addEventListener('click', (e)=>{
+  const a = e.target.closest('.chartLink');
+  if(!a) return;
+  e.preventDefault();
+  const sym = a.dataset.symbol;
+  if(!sym) return;
+  // open a simple TradingView chart or Yahoo (we keep it simple)
+  const url = `https://finance.yahoo.com/quote/${encodeURIComponent(sym)}/chart`;
+  window.open(url,'_blank');
+});
 
 </script>
 </body>
