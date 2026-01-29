@@ -1,171 +1,159 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>Penny Scanner v4</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Penny Scanner v4 — Debug</title>
 <style>
-body {
-  background:#0b1220;
-  color:#fff;
-  font-family: Arial, sans-serif;
-  padding:15px;
-}
-h1 { margin-bottom:10px; }
-.controls {
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  margin-bottom:10px;
-}
-button,input,label {
-  background:#1b2436;
-  color:white;
-  border:none;
-  padding:8px 12px;
-  border-radius:8px;
-}
-.card {
-  background:#111a2b;
-  border-left:6px solid #444;
-  padding:12px;
-  margin-bottom:12px;
-  border-radius:12px;
-}
-.hot { border-color:#00ff9c; }
-.warm { border-color:#ffc107; }
-.watch { border-color:#4dabff; }
-.status { font-weight:bold; }
-a { color:#9ecbff; }
-.progress {
-  height:6px;
-  background:#333;
-  border-radius:6px;
-  overflow:hidden;
-  margin:10px 0;
-}
-.bar {
-  height:100%;
-  width:0%;
-  background:#00d4ff;
-}
+body{font-family:Arial,Helvetica,sans-serif;background:#071025;color:#e6eef8;margin:0;padding:16px}
+h1{margin:0 0 12px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.controls input, .controls button{padding:8px;border-radius:8px;border:none;background:#0f1a2b;color:#e6eef8}
+.card{background:#0b1320;padding:12px;border-radius:10px;margin-bottom:10px;border-left:6px solid #555}
+.hot{border-left-color:#00ff99} .warm{border-left-color:#ffb703} .watch{border-left-color:#64b5f6}
+.small{color:#9aa7bf;font-size:13px}
+.debug{background:#081826;padding:10px;border-radius:8px;color:#cfe9ff;font-family:monospace;white-space:pre-wrap;max-height:220px;overflow:auto;border:1px solid rgba(255,255,255,0.03)}
+.progress{height:6px;background:#132334;border-radius:6px;overflow:hidden;margin:10px 0}
+.bar{height:100%;width:0;background:linear-gradient(90deg,#00e0c6,#3b82f6)}
 </style>
 </head>
 <body>
-
-<h1>📈 Penny Scanner v4</h1>
+<h1>📈 Penny Scanner v4 — Debug</h1>
 
 <div class="controls">
-<button onclick="toggleSound()">🔔 Sound: <span id="soundStatus">ON</span></button>
+<button id="soundBtn">🔔 Sound: <span id="soundState">ON</span></button>
 <input id="minVol" type="number" value="100000" />
-<label><input type="checkbox" id="showAll" checked /> Show All</label>
-<label><input type="checkbox" id="prOnly" /> PR Only</label>
-<button onclick="scan()">Scan Now</button>
+<label><input id="showAll" type="checkbox" checked /> Show All</label>
+<label><input id="prOnly" type="checkbox" /> PR Only</label>
+<button id="scanBtn">Scan Now</button>
 </div>
 
-<div id="status">Status: ready</div>
+<div id="status" class="small">Status: ready</div>
 <div class="progress"><div id="bar" class="bar"></div></div>
-<div id="leader"></div>
+<div id="leader" class="small"></div>
 
 <div id="results"></div>
+
+<h3 class="small">API Status / Debug</h3>
+<div id="apiStatus" class="small">API Status: (not checked)</div>
+<div id="rawResponse" class="debug">Raw API Response will show here (paste screenshot if it fails)</div>
 
 <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
 <script>
-const API_KEY = "C3U8voH19zrxl5iCPHEDHSdOWgJwL6oi";
-const FMP_URL = "https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=" + API_KEY;
+// === CONFIG - paste your key here ===
+const API_KEY = "D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ"; // <-- put your new key here
+const FMP_BASE = "https://financialmodelingprep.com/api/v3/stock_market/gainers";
+const FMP_URL = FMP_BASE + "?apikey=" + API_KEY;
 
-let soundOn = true;
-let progress = 0;
+// === UI refs
+const statusEl = document.getElementById('status');
+const apiStatusEl = document.getElementById('apiStatus');
+const rawEl = document.getElementById('rawResponse');
+const resultsEl = document.getElementById('results');
+const leaderEl = document.getElementById('leader');
+const bar = document.getElementById('bar');
+const beep = document.getElementById('beep');
 
-const demoData = [
- {symbol:"SMOVE", price:3.42, volume:800000, news:"SMOVE surges after press release"},
- {symbol:"TWG", price:5.11, volume:1200000, news:"TWG launches new product"},
- {symbol:"DRCT", price:2.95, volume:450000, news:"DRCT heavy volume after announcement"},
- {symbol:"TRUE", price:1.88, volume:250000, news:"TRUE reports earnings"}
-];
+let sound=true;
+document.getElementById('soundBtn').onclick = ()=>{
+  sound = !sound;
+  document.getElementById('soundState').innerText = sound ? 'ON':'OFF';
+};
+document.getElementById('scanBtn').onclick = ()=> scanNow();
 
-function toggleSound(){
- soundOn = !soundOn;
- document.getElementById("soundStatus").innerText = soundOn ? "ON":"OFF";
+let progress=0;
+function animateProgress(){
+  progress = Math.min(100, progress + 6);
+  bar.style.width = progress + "%";
+  if(progress < 100) setTimeout(animateProgress, 160);
 }
 
-async function scan(){
- progress=0;
- document.getElementById("bar").style.width="0%";
- document.getElementById("status").innerText="Scanning...";
- animateBar();
-
- let data=[];
- let used="LIVE";
-
- try{
-   const res = await fetch(FMP_URL+"&t="+Date.now());
-   if(!res.ok) throw new Error("HTTP "+res.status);
-   data = await res.json();
- }catch(err){
-   data = demoData;
-   used="DEMO (API blocked)";
- }
-
- processData(data,used);
+async function scanNow(){
+  progress = 0; bar.style.width='0%';
+  animateProgress();
+  statusEl.textContent = "Status: scanning...";
+  try {
+    // add cache-bust param
+    const url = FMP_URL + "&t=" + Date.now();
+    const res = await fetch(url, {cache:'no-store'});
+    const text = await res.text();
+    apiStatusEl.textContent = `API Status: HTTP ${res.status} ${res.statusText}`;
+    rawEl.textContent = text.slice(0,2000);
+    // if not OK, fallback to demo
+    if(!res.ok) {
+      statusEl.textContent = "Status: API failed — using DEMO";
+      renderDemo();
+      return;
+    }
+    // parse JSON
+    let json;
+    try { json = JSON.parse(text); } catch(e) {
+      statusEl.textContent = "Status: JSON parse failed — using DEMO";
+      renderDemo();
+      return;
+    }
+    // Good data -> render
+    statusEl.textContent = "Status: LIVE feed OK";
+    renderList(json, "FMP live");
+  } catch(err){
+    apiStatusEl.textContent = `API Error: ${err.message||err}`;
+    rawEl.textContent = String(err.stack || err.message || err);
+    statusEl.textContent = "Status: fetch error — using DEMO";
+    renderDemo();
+  }
 }
 
-function animateBar(){
- if(progress>=100) return;
- progress+=5;
- document.getElementById("bar").style.width=progress+"%";
- setTimeout(animateBar,200);
+function renderDemo(){
+  const demo = [
+    {symbol:"SMOVE", price:3.42, volume:800000, name:"SMOVE surges after press release"},
+    {symbol:"TWG", price:5.11, volume:1200000, name:"TWG launches new product"},
+    {symbol:"DRCT", price:2.95, volume:450000, name:"DRCT heavy volume after announcement"},
+    {symbol:"TRUE", price:1.88, volume:250000, name:"TRUE reports earnings"}
+  ];
+  renderList(demo, "Demo");
+  apiStatusEl.textContent += " | demo active";
 }
 
-function processData(data, used){
- const minVol = parseInt(document.getElementById("minVol").value);
- const showAll = document.getElementById("showAll").checked;
- const prOnly = document.getElementById("prOnly").checked;
+function renderList(items, source){
+  resultsEl.innerHTML = "";
+  const minVol = Number(document.getElementById('minVol').value || 0);
+  const prOnly = document.getElementById('prOnly').checked;
+  const showAll = document.getElementById('showAll').checked;
+  const filtered = (items || []).filter(s => (s.volume || s.volume === 0 ? s.volume : (s.volume || s.v || 0)) >= minVol);
 
- let filtered = data.filter(s => s.volume >= minVol);
+  const display = showAll ? filtered : filtered.slice(0,10);
+  if(display.length === 0) {
+    resultsEl.innerHTML = '<div class="small">No stocks match filters</div>';
+    leaderEl.textContent = "Leader: none";
+    return;
+  }
+  leaderEl.textContent = "Leader: " + (display[0].symbol || display[0].ticker || 'N/A');
 
- if(prOnly){
-   filtered = filtered.filter(s => (s.news||"").toLowerCase().includes("press"));
- }
-
- if(!showAll){
-   filtered = filtered.slice(0,5);
- }
-
- let leader = filtered.length ? filtered[0].symbol : "None";
- document.getElementById("leader").innerText="Leader: "+leader;
- document.getElementById("status").innerText="Used: "+used+" | "+filtered.length+" stocks";
-
- const box = document.getElementById("results");
- box.innerHTML="";
-
- filtered.forEach(stock=>{
-   let status="WATCH", cls="watch";
-   if(stock.volume>700000){ status="HOT"; cls="hot"; }
-   else if(stock.volume>400000){ status="WARM"; cls="warm"; }
-
-   const div=document.createElement("div");
-   div.className="card "+cls;
-   div.innerHTML=`
-   <strong>${stock.symbol} $${stock.price || "?"}</strong><br>
-   Vol: ${stock.volume}<br>
-   ${stock.news || "No news"}<br>
-   <span class="status">${status}</span><br>
-   <a href="https://www.tradingview.com/symbols/${stock.symbol}/" target="_blank">📊 Chart</a>
-   `;
-   box.appendChild(div);
-
-   if(soundOn && status==="HOT"){
-     document.getElementById("beep").play();
-   }
- });
-
+  display.forEach((s, i) => {
+    const sym = s.symbol || s.ticker || s.code || '';
+    const price = s.price || s.currentPrice || s.last || 0;
+    const vol = s.volume || s.v || 0;
+    const title = s.name || s.companyName || s.title || '';
+    let cls='watch';
+    if(vol > 700000) cls='hot';
+    else if(vol > 400000) cls='warm';
+    const card = document.createElement('div');
+    card.className = 'card ' + cls;
+    card.innerHTML = `<div style="font-weight:700">${sym} $${Number(price).toFixed(2)}</div>
+                      <div class="small">Vol: ${Number(vol).toLocaleString()}</div>
+                      <div class="small">${title}</div>
+                      <div style="margin-top:8px;font-weight:700">${cls.toUpperCase()}</div>
+                      <div style="margin-top:6px"><a href="https://finance.yahoo.com/quote/${sym}" target="_blank" style="color:#8ed1ff">Chart</a></div>`;
+    resultsEl.appendChild(card);
+    if(cls === 'hot' && sound) { try{ beep.play(); navigator.vibrate?.(100); }catch(e){} }
+  });
 }
 
-scan();
-setInterval(scan,30000);
+// initial
+scanNow();
+setInterval(scanNow, 30000);
+
 </script>
-
 </body>
 </html>
