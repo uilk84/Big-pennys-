@@ -2,171 +2,144 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner v4</title>
+<title>Penny Scanner v1 (Safe)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
-body{background:#0b1220;color:white;font-family:system-ui;margin:0;padding:15px}
-h1{margin-bottom:10px}
-.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-button,input,select{background:#1b2335;color:white;border:none;border-radius:10px;padding:8px 12px}
-.card{background:#121a2b;border-radius:12px;padding:12px;margin-bottom:12px;border-left:5px solid #444}
-.hot{border-color:#00ff88}
-.warm{border-color:#ffaa00}
-.watch{border-color:#888}
-.sym{font-size:18px;font-weight:bold;color:#4da3ff}
-.news{color:#eee}
-.status{margin-top:5px;font-weight:bold}
-.leader{color:#00ffcc;margin:10px 0}
-a{color:#8ab4ff;text-decoration:none}
+body {
+  background:#0b1220;
+  color:#fff;
+  font-family:system-ui;
+  margin:0;
+  padding:20px;
+}
+h1 {margin-bottom:10px;}
+.controls {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-bottom:15px;
+}
+button,input {
+  background:#1c2438;
+  border:none;
+  border-radius:8px;
+  padding:10px;
+  color:white;
+  font-size:14px;
+}
+.stock {
+  background:#111a2f;
+  border-left:6px solid #facc15;
+  padding:12px;
+  margin-bottom:10px;
+  border-radius:10px;
+}
+.hot { border-left-color:#22c55e; }
+.warm { border-left-color:#facc15; }
+.watch { border-left-color:#3b82f6; }
+a {color:#60a5fa;}
+.small {opacity:.7;font-size:13px;}
 </style>
 </head>
-<body>
 
-<h1>Penny Scanner v4</h1>
+<body>
+<h1>📈 Penny Scanner v1 (Safe)</h1>
 
 <div class="controls">
-<button id="soundBtn">🔔 ON</button>
-<select id="session">
-<option value="RTH">RTH</option>
-<option value="PM">PM</option>
-<option value="AH">AH</option>
-</select>
-<label>MinVol <input id="minVol" type="number" value="100000"></label>
-<label><input type="checkbox" id="showAll"> Show All</label>
+<button onclick="toggleSound()">🔔 Sound: <span id="soundState">ON</span></button>
+<input id="minVol" type="number" value="100000" placeholder="Min Volume">
 <label><input type="checkbox" id="prOnly"> PR Only</label>
-<button id="forceDemo">Force Demo</button>
 </div>
 
-<div id="status">Loading…</div>
-<div class="leader" id="leader"></div>
-<div id="list"></div>
+<div class="small" id="status">Loading...</div>
+<div id="stocks"></div>
+
+<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
 <script>
-const workerURL="https://holy-mouse-bba2.jasonuilkie84.workers.dev/news";
-const feeds=["finviz","finviz2","finviz3"];
-let feedIndex=0;
-let countdown=20;
 let soundOn=true;
-let useDemo=false;
-let pmh={};
-let today=new Date().toDateString();
-let leader="";
+let lastLeader="";
 
-const demoData=[
-{ticker:"TWG",title:"TWG press release — product launch",volume:1200000},
-{ticker:"SMOVE",title:"SMOVE soars after news",volume:800000},
-{ticker:"DRCT",title:"DRCT heavy volume after announcement",volume:450000},
-{ticker:"TRUE",title:"TRUE mentions strong results",volume:250000}
-];
-
-document.getElementById("soundBtn").onclick=()=>{
-soundOn=!soundOn;
-document.getElementById("soundBtn").innerText=soundOn?"🔔 ON":"🔕 OFF";
-};
-
-document.getElementById("forceDemo").onclick=()=>useDemo=true;
-
-function beep(){
-if(!soundOn) return;
-new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg").play();
+function toggleSound(){
+ soundOn=!soundOn;
+ document.getElementById("soundState").textContent=soundOn?"ON":"OFF";
 }
 
-function resetDaily(){
-const now=new Date().toDateString();
-if(now!==today){
-pmh={};
-today=now;
-}
-}
-
-function scoreStock(vol,pmhBreak){
-let s=0;
-if(vol>100000)s++;
-if(vol>300000)s++;
-if(vol>600000)s++;
-if(pmhBreak)s+=2;
-return s;
+async function fetchStocks(){
+ const url="https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=25&scrIds=day_gainers";
+ try{
+  const res=await fetch(url);
+  const data=await res.json();
+  processStocks(data.finance.result[0].quotes);
+ }catch(e){
+  demoData();
+ }
 }
 
-function statusFromScore(s){
-if(s>=4)return"HOT";
-if(s>=2)return"WARM";
-return"WATCH";
+function processStocks(list){
+ const minVol=parseInt(document.getElementById("minVol").value||0);
+ const prOnly=document.getElementById("prOnly").checked;
+ let out=[];
+ list.forEach(s=>{
+  if(!s.symbol || !s.regularMarketVolume) return;
+  if(s.regularMarketVolume<minVol) return;
+  let news=(s.longName||"")+" "+(s.shortName||"");
+  let hasPR=/press|launch|contract|approval|merger|acquire/i.test(news);
+  if(prOnly && !hasPR) return;
+  out.push({
+    sym:s.symbol,
+    price:s.regularMarketPrice,
+    vol:s.regularMarketVolume,
+    news:news.substring(0,120),
+    pr:hasPR
+  });
+ });
+
+ render(out);
 }
 
-async function fetchFeed(){
-resetDaily();
-document.getElementById("status").innerText=`Feed: ${feeds[feedIndex]} | Next scan in ${countdown}s`;
+function render(list){
+ const box=document.getElementById("stocks");
+ box.innerHTML="";
+ if(list.length==0){
+   box.innerHTML="<div class='small'>No stocks match filters.</div>";
+   return;
+ }
+ const leader=list[0].sym;
+ document.getElementById("status").textContent="Leader: "+leader+" | Next scan in 30s";
 
-let items=[];
-if(useDemo){
-items=demoData;
-}else{
-try{
-const r=await fetch(workerURL);
-const data=await r.json();
-items=data.slice(0,20).map(n=>({
-ticker:n.ticker,
-title:n.title,
-volume:Math.floor(50000+Math.random()*900000)
-}));
-}catch{
-items=demoData;
-}
-}
+ if(leader!==lastLeader && soundOn){
+   document.getElementById("beep").play();
+   lastLeader=leader;
+ }
 
-render(items);
-feedIndex=(feedIndex+1)%feeds.length;
-}
-
-function render(items){
-const minVol=+document.getElementById("minVol").value;
-const showAll=document.getElementById("showAll").checked;
-const prOnly=document.getElementById("prOnly").checked;
-
-let html="";
-let best=0;
-leader="";
-
-items.forEach(i=>{
-if(prOnly && !i.title.toLowerCase().includes("press")) return;
-if(!showAll && i.volume<minVol) return;
-
-pmh[i.ticker]=(pmh[i.ticker]||0)+1;
-let broke=pmh[i.ticker]>2;
-let score=scoreStock(i.volume,broke);
-let status=statusFromScore(score);
-
-if(score>best){best=score;leader=i.ticker;}
-
-let cls=status.toLowerCase();
-let chart=`https://www.tradingview.com/chart/?symbol=${i.ticker}`;
-
-html+=`
-<div class="card ${cls}">
-<div class="sym">${i.ticker} $${i.volume.toLocaleString()}</div>
-<div class="news">${i.title}</div>
-<div class="status">${status} | PMH:${pmh[i.ticker]}</div>
-<a href="${chart}" target="_blank">📈 Chart</a>
-</div>`;
-
-if(status==="HOT")beep();
-});
-
-document.getElementById("leader").innerText=leader?`Leader: ${leader}`:"";
-document.getElementById("list").innerHTML=html||"<div>No stocks found</div>";
+ list.forEach((s,i)=>{
+  let status=i==0?"HOT":i<3?"WARM":"WATCH";
+  let cls=status.toLowerCase();
+  box.innerHTML+=`
+  <div class="stock ${cls}">
+   <b>${s.sym}</b> $${s.price}<br>
+   Vol: ${s.vol.toLocaleString()}<br>
+   <span class="small">${s.news}</span><br>
+   <b>Status: ${status}</b><br>
+   <a href="https://finance.yahoo.com/quote/${s.sym}" target="_blank">📊 Chart</a>
+  </div>`;
+ });
 }
 
-setInterval(()=>{
-countdown--;
-if(countdown<=0){
-countdown=20;
-fetchFeed();
+function demoData(){
+ render([
+  {sym:"SMOVE",price:3.42,vol:800000,news:"SMOVE surges after press release"},
+  {sym:"TWG",price:5.11,vol:1200000,news:"TWG launches new product"},
+  {sym:"DRCT",price:2.95,vol:450000,news:"DRCT heavy volume after announcement"},
+  {sym:"TRUE",price:1.88,vol:250000,news:"TRUE reports earnings"}
+ ]);
+ document.getElementById("status").textContent="Demo mode (Yahoo blocked)";
 }
-document.getElementById("status").innerText=`Next scan in ${countdown}s`;
-},1000);
 
-fetchFeed();
+fetchStocks();
+setInterval(fetchStocks,30000);
 </script>
 </body>
 </html>
