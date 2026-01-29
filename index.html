@@ -3,387 +3,315 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v4</title>
+<title>Penny Scanner v4 — Key-friendly</title>
 <style>
-  :root{
-    --bg:#0e1720; --card:#0f1a23; --muted:#98a1ad; --accent:#09d3a4; --hot:#ffd166; --warm:#ffb86b;
-    --text:#e7eef6; --link:#6cc3ff;
-  }
-  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
-  .wrap{max-width:760px;margin:18px auto;padding:14px;}
-  h1{font-size:34px;margin:6px 0 12px}
-  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
-  .btn, input[type=text], select {background:linear-gradient(#101826,#0c151b);border-radius:12px;padding:10px 14px;border:1px solid rgba(255,255,255,0.03);color:var(--text)}
-  .btn{cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
-  .small{padding:8px 10px;border-radius:10px;font-size:14px}
-  input[type=text]{min-width:120px}
-  label{display:flex;align-items:center;gap:8px;color:var(--muted)}
-  .status{margin:8px 0;color:var(--muted)}
-  .bar{height:6px;border-radius:6px;background:linear-gradient(90deg,#24c6dc,#514aeb);margin:6px 0}
-  .list{margin-top:12px;display:grid;gap:12px}
-  .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+  :root{--bg:#0e1720;--card:#0f1a23;--muted:#98a1ad;--link:#6cc3ff;--text:#e7eef6;--hot:#ffd166;--warm:#ffb86b;--good:#3ce88a}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial}
+  .wrap{max-width:820px;margin:14px auto;padding:14px}
+  h1{font-size:30px;margin:0 0 12px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .btn,input[type=text],select{background:linear-gradient(#0b1216,#0d161b);border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:10px}
+  input.small{width:140px}
+  label{color:var(--muted);display:flex;align-items:center;gap:8px}
+  .bar{height:6px;background:linear-gradient(90deg,#21c9d6,#6b5dff);border-radius:6px;margin:6px 0}
+  .list{display:grid;gap:12px;margin-top:12px}
+  .card{background:var(--card);padding:14px;border-radius:12px}
   .ticker{font-weight:700;color:var(--link);font-size:18px}
   .meta{color:var(--muted);margin-top:6px}
-  .statusTag{margin-top:8px;font-weight:700}
-  .yellow{color:var(--hot)} .orange{color:var(--warm)} .green{color:#33dd99}
   .rightBadge{float:right;background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px}
   pre.debug{background:#071018;color:#9ed1ff;padding:12px;border-radius:10px;overflow:auto;margin-top:12px}
-  .footer{height:80px}
+  .keys{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .kbox{display:flex;flex-direction:column;gap:6px}
+  .muted{color:var(--muted)}
   a{color:var(--link)}
-  /* mobile spacing */
-  @media(min-width:600px){ .wrap{padding:20px} }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>📈 Penny Scanner v4</h1>
+    <h1>📈 Penny Scanner v4 (keys on-device)</h1>
 
     <div class="controls">
-      <button id="soundToggle" class="btn small">🔔 Sound: <span id="soundState">ON</span></button>
-
-      <label><input type="checkbox" id="showAll" checked /> Show All</label>
-
-      <label><input type="checkbox" id="prOnly" /> PR Only</label>
-
-      <input id="minVol" type="text" class="small" value="100000" placeholder="Min volume" />
-
-      <button id="scanNow" class="btn small">Scan Now</button>
-      <button id="forceDemo" class="btn small">Force Demo</button>
-
-      <select id="presets" class="small">
-        <option value="">Presets</option>
-        <option value="default">Default</option>
-        <option value="safe">SAFE (0.5–20)</option>
-        <option value="aggro">Aggro (0.1–1000)</option>
-      </select>
-
-      <button id="wakeLockBtn" class="btn small">Wake Lock</button>
-
+      <button id="scanNow" class="btn">Scan Now</button>
+      <button id="forceDemo" class="btn">Force Demo</button>
+      <label><input id="showAll" type="checkbox" checked /> Show All</label>
+      <label><input id="prOnly" type="checkbox" /> PR Only</label>
+      <input id="minVol" class="small" type="text" value="100000" />
     </div>
 
-    <div class="status" id="sessionStatus">Feed: — | Next scan in: —</div>
-    <div class="bar" id="progressBar" style="width:0%"></div>
+    <div class="muted">Paste your API keys below and click <strong>Save Keys</strong>. Keys are stored locally on your phone (in browser storage) — not uploaded anywhere.</div>
 
-    <div id="leaderLine" style="color:#3ce88a;margin-top:8px">Leader: —</div>
+    <div class="keys">
+      <div class="kbox">
+        <label>FinancialModelingPrep Key (FMP)</label>
+        <input id="fmpKey" type="text" placeholder="FMP API key (paste here)" />
+      </div>
+      <div class="kbox">
+        <label>Finnhub Key (optional)</label>
+        <input id="finnKey" type="text" placeholder="Finnhub key (optional)" />
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <button id="saveKeys" class="btn">Save Keys</button>
+        <button id="clearKeys" class="btn">Clear Keys</button>
+      </div>
+    </div>
+
+    <div class="status" id="status" style="margin-top:8px;color:var(--muted)">Feed: — | Next scan: —</div>
+    <div class="bar" id="progress" style="width:0%"></div>
+    <div style="margin-top:8px;color:var(--good)" id="leader">Leader: —</div>
 
     <div class="list" id="list"></div>
 
-    <div class="footer"></div>
-
-    <pre class="debug" id="debug"></pre>
+    <pre id="debug" class="debug"></pre>
   </div>
 
 <script>
-/* ===========================================================
-   CONFIG: paste your keys here
-   =========================================================== */
-const FMP_API_KEY = 'D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ';      // FinancialModelingPrep (recommended)
-const FINNHUB_API_KEY = 'd1pdjtpr01qu436e4d50d1pdjtpr01qu436e4d5g'; // Finnhub (per-symbol fallback)
-const POLYGON_API_KEY = ''; // optional (if you have entitlement)
-
-/* ===========================================================
-   END CONFIG
-   =========================================================== */
-
-/* --- runtime settings --- */
-const SCAN_INTERVAL = 30; // seconds between auto scans
-let useDemo = false;
-let soundOn = true;
-let wakeLock = null;
-
-/* --- small demo feed so UI never goes blank --- */
-const DEMO_FEED = [
+/* ---------- demo + utilities ---------- */
+const DEMO = [
   {symbol:'SMOVE', price:3.42, vol:800000, title:'SMOVE surges after press release', status:'HOT'},
   {symbol:'TWG', price:5.11, vol:1200000, title:'TWG launches new product', status:'WARM'},
   {symbol:'DRCT', price:2.95, vol:450000, title:'DRCT heavy volume after announcement', status:'WARM'},
   {symbol:'TRUE', price:1.88, vol:250000, title:'TRUE reports earnings', status:'WATCH'}
 ];
 
-/* --- DOM --- */
+const SCAN_INTERVAL = 30; // seconds
+let nextScan = SCAN_INTERVAL;
+let autoTimer = null;
+let useDemo = false;
+let lastLeader = '';
+
+/* DOM */
 const listEl = document.getElementById('list');
 const debugEl = document.getElementById('debug');
-const statusEl = document.getElementById('sessionStatus');
-const progressEl = document.getElementById('progressBar');
-const leaderEl = document.getElementById('leaderLine');
+const statusEl = document.getElementById('status');
+const progressEl = document.getElementById('progress');
+const leaderEl = document.getElementById('leader');
 
-const soundToggle = document.getElementById('soundToggle');
-const soundState = document.getElementById('soundState');
-const scanNowBtn = document.getElementById('scanNow');
+const fmpField = document.getElementById('fmpKey');
+const finnField = document.getElementById('finnKey');
+const saveBtn = document.getElementById('saveKeys');
+const clearBtn = document.getElementById('clearKeys');
+const scanBtn = document.getElementById('scanNow');
 const forceDemoBtn = document.getElementById('forceDemo');
-const presets = document.getElementById('presets');
-const wakeLockBtn = document.getElementById('wakeLockBtn');
 
-/* --- audio --- */
-const beep = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA='); // tiny placeholder
+/* load saved keys from localStorage on load */
+(function loadKeys(){
+  try {
+    const f = localStorage.getItem('fmp_key') || '';
+    const fi = localStorage.getItem('finnhub_key') || '';
+    fmpField.value = f;
+    finnField.value = fi;
+    if(f) log('Using saved FMP key from device (not repo).');
+  } catch(e){}
+})();
 
-/* --- helpers --- */
-function logDebug(...args){
-  debugEl.textContent = args.map(a => (typeof a==='object'?JSON.stringify(a,null,2):String(a))).join('\n\n');
-}
+function log(...args){ debugEl.textContent = args.map(x => (typeof x==='object'?JSON.stringify(x,null,2):String(x))).join('\\n\\n'); }
 
-function vibrate(){
-  if(navigator.vibrate) navigator.vibrate(200);
-}
-function playSound(){
-  if(soundOn) {
-    beep.currentTime = 0;
-    beep.play().catch(()=>{});
-    vibrate();
+function formatVol(v){ if(!v) return '0'; if(v>=1e6) return (v/1e6).toFixed(2)+'M'; if(v>=1e3) return (v/1e3).toFixed(0)+'K'; return String(v); }
+function formatPrice(p){ return (Number(p)||0).toFixed(2); }
+
+/* ---------- saving & clearing keys ---------- */
+saveBtn.addEventListener('click', ()=>{
+  try {
+    localStorage.setItem('fmp_key', fmpField.value.trim());
+    localStorage.setItem('finnhub_key', finnField.value.trim());
+    alert('Keys saved locally. Scanning now...');
+    doScan(true);
+  } catch(e){
+    alert('Failed to save keys: '+e.message);
   }
-}
+});
+clearBtn.addEventListener('click', ()=>{
+  if(confirm('Clear saved keys from this browser?')){
+    localStorage.removeItem('fmp_key'); localStorage.removeItem('finnhub_key');
+    fmpField.value=''; finnField.value='';
+    alert('Keys cleared. The page will use DEMO if live calls fail.');
+    doScan(true);
+  }
+});
 
-/* --- styling helpers --- */
-function statusClass(status){
-  if(!status) return '';
-  const s = status.toLowerCase();
-  if(s.includes('hot')) return 'green';
-  if(s.includes('warm')) return 'orange';
-  if(s.includes('watch')) return '';
-  return '';
-}
+/* ---------- fetch helpers that read localStorage keys ---------- */
+function getFmpKey(){ return localStorage.getItem('fmp_key') || fmpField.value.trim() || ''; }
+function getFinnKey(){ return localStorage.getItem('finnhub_key') || finnField.value.trim() || ''; }
 
-/* --- feed rotation --- 
-   Try sources in priority:
-   1) FMP top gainers (fast single call)
-   2) FMP top actives
-   3) per-symbol quote fallback from Finnhub for missing fields
-   4) demo feed
-*/
-async function fetchFMPGainers(){
-  // endpoint documented: /api/v3/stock_market/gainers
-  const url = `https://financialmodelingprep.com/api/v3/stock_market/gainers${FMP_API_KEY?`?apikey=${FMP_API_KEY}`:''}`;
+/* FMP gainers endpoint (v3) */
+async function fetchFmpGainers(){
+  const key = getFmpKey();
+  const url = key ? `https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${encodeURIComponent(key)}` : 'https://financialmodelingprep.com/api/v3/stock_market/gainers';
   const res = await fetch(url);
-  if(!res.ok) throw {source:'FMP gainers', status:res.status, text: await res.text()};
+  if(!res.ok){
+    const text = await res.text().catch(()=>'<no body>');
+    throw {source:'FMP gainers', status:res.status, text};
+  }
   return res.json();
 }
 
-async function fetchFMPActives(){
-  const url = `https://financialmodelingprep.com/api/v3/stock_market/actives${FMP_API_KEY?`?apikey=${FMP_API_KEY}`:''}`;
+/* FMP actives fallback */
+async function fetchFmpActives(){
+  const key = getFmpKey();
+  const url = key ? `https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${encodeURIComponent(key)}` : 'https://financialmodelingprep.com/api/v3/stock_market/actives';
   const res = await fetch(url);
-  if(!res.ok) throw {source:'FMP actives', status:res.status, text: await res.text()};
+  if(!res.ok){
+    const text = await res.text().catch(()=>'<no body>');
+    throw {source:'FMP actives', status:res.status, text};
+  }
   return res.json();
 }
 
+/* Finnhub per-symbol quote fallback (if user provides finnhub key) */
 async function fetchFinnhubQuote(symbol){
-  if(!FINNHUB_API_KEY) throw {source:'Finnhub', status:'no_key'};
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${FINNHUB_API_KEY}`;
+  const key = getFinnKey();
+  if(!key) throw {source:'Finnhub', status:'no_key', text:'No finnhub key provided'};
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(key)}`;
   const res = await fetch(url);
-  if(!res.ok) throw {source:'Finnhub', status:res.status, text: await res.text()};
+  if(!res.ok) throw {source:'Finnhub quote', status:res.status, text: await res.text()};
   return res.json();
 }
 
-/* --- normalize FMP responses into internal items --- */
-function normalizeFMPItem(item){
-  // FMP top gainers sample fields: symbol, name, price, changesPercentage, volume, dayHigh, dayLow
+/* normalize FMP item -> our shape */
+function normalizeFmp(item){
   return {
-    symbol: item.symbol || item.ticker || item.symbolName || 'UNK',
-    price: item.price || item.price || 0,
-    vol: item.volume || item.volume || item?.vol || 0,
+    symbol: item.symbol || item.ticker || item.symbol,
+    price: item.price || item.open || item.previousClose || 0,
+    vol: item.volume || item.volume || 0,
     title: item.name || item.companyName || (item.symbol || '') + ' mover',
-    status: (item.changesPercentage && Math.abs(parseFloat(item.changesPercentage))>10)?'HOT':(item.changesPercentage && Math.abs(parseFloat(item.changesPercentage))>3)?'WARM':'WATCH'
-  }
+    status: (item.changesPercentage && Math.abs(Number(item.changesPercentage))>10) ? 'HOT' : (item.changesPercentage && Math.abs(Number(item.changesPercentage))>3) ? 'WARM' : 'WATCH'
+  };
 }
 
-/* --- UI render --- */
-function renderList(items, feedUsed){
+/* ---------- render ---------- */
+function render(items, feedUsed){
   listEl.innerHTML = '';
-  if(items.length===0){ listEl.innerHTML = '<div class="card">No results</div>'; return; }
+  if(!items || items.length === 0){
+    listEl.innerHTML = '<div class="card">No results</div>';
+    leaderEl.textContent = 'Leader: —';
+    return;
+  }
   items.forEach((it, idx) => {
-    const card = document.createElement('div'); card.className = 'card';
-    const badge = document.createElement('div'); badge.className = 'rightBadge'; badge.textContent = (idx+1);
+    const card = document.createElement('div'); card.className='card';
+    const badge = document.createElement('div'); badge.className='rightBadge'; badge.textContent = (idx+1);
     card.appendChild(badge);
-    const ticker = document.createElement('div'); ticker.className='ticker';
-    ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`;
-    card.appendChild(ticker);
-    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || '';
-    card.appendChild(title);
-    const meta = document.createElement('div'); meta.className='meta'; meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <span class="statusTag ${statusClass(it.status)}">${it.status||'—'}</span>`;
-    card.appendChild(meta);
-
-    const linkRow = document.createElement('div'); linkRow.style.marginTop='8px';
-    const chart = document.createElement('a'); chart.href = `#`; chart.className='small'; chart.textContent='📈 Chart';
-    chart.onclick = (e)=>{ e.preventDefault(); openQuickChart(it.symbol); };
-    linkRow.appendChild(chart);
-    card.appendChild(linkRow);
-
+    const ticker = document.createElement('div'); ticker.className='ticker'; ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`; card.appendChild(ticker);
+    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || ''; card.appendChild(title);
+    const meta = document.createElement('div'); meta.className='meta'; meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <strong>${it.status||'—'}</strong>`; card.appendChild(meta);
+    const link = document.createElement('div'); link.style.marginTop='8px'; link.innerHTML = `<a href="#" onclick="event.preventDefault();window.open('https://www.tradingview.com/symbols/${encodeURIComponent(it.symbol)}/','_blank')">📈 Chart</a>`;
+    card.appendChild(link);
     listEl.appendChild(card);
   });
   leaderEl.textContent = 'Leader: ' + (items[0]?.symbol || '—');
-  statusEl.textContent = `Feed: ${feedUsed} | Next scan in: ${nextScanIn}s`;
+  statusEl.textContent = `Feed: ${feedUsed} | Next scan: ${nextScan}s`;
 }
 
-/* --- small formatting --- */
-function formatVol(v){
-  if(!v) return '0';
-  if(v >= 1e6) return (v/1e6).toFixed(2) + 'M';
-  if(v >= 1e3) return (v/1e3).toFixed(0) + 'K';
-  return String(v);
-}
-function formatPrice(p){ return (typeof p === 'number' ? p : Number(p) || 0).toFixed(2); }
-
-function openQuickChart(symbol){
-  // quick chart link to TradingView or similar (no API)
-  const url = `https://www.tradingview.com/symbols/${symbol}/`;
-  window.open(url,'_blank');
-}
-
-/* --- scan logic with fallbacks --- */
-let autoInterval = null;
-let nextScanIn = SCAN_INTERVAL;
-async function doScan(manual=false){
-  logDebug('Scanning... (manual: '+manual+')');
-  // check for forced demo
-  if(useDemo){ renderList(DEMO_FEED, 'DEMO (forced)'); playSound(); return; }
-
-  // try a sequence
-  try {
-    const fmp = await fetchFMPGainers();
-    // normalize top 10 & filter by minVol / PR only / showAll
-    let items = (Array.isArray(fmp)?fmp:[]).slice(0,30).map(normalizeFMPItem);
-    items = applyFilters(items);
-    if(items.length===0) throw {source:'fmp_gainers', message:'no items after filter'};
-    renderList(items, 'FMP: gainers');
-    logDebug({used:'fmp_gainers', count:items.length});
-    playSoundIfLeaderChanged(items);
-    return;
-  } catch (err1) {
-    // fallback -> try FMP actives
-    try {
-      const act = await fetchFMPActives();
-      let items = (Array.isArray(act)?act:[]).slice(0,40).map(normalizeFMPItem);
-      items = applyFilters(items);
-      if(items.length===0) throw {source:'fmp_actives', message:'no items after filter'};
-      renderList(items, 'FMP: actives');
-      logDebug({used:'fmp_actives', count:items.length});
-      playSoundIfLeaderChanged(items);
-      return;
-    } catch (err2) {
-      // if we have a finnhub key we can try per-symbol quotes for our demo set
-      try {
-        const demoSymbols = ['SMOVE','TWG','DRCT','TRUE'];
-        const quotePromises = demoSymbols.map(s=>fetchFinnhubQuote(s).then(q=>{
-          return {symbol:s, price:q.c||0, vol:q.v||0, title:s+' live quote', status:(q.c && q.dp && Math.abs(q.dp)>5)?'HOT':'WARM'};
-        }).catch(()=>null));
-        const resolved = (await Promise.all(quotePromises)).filter(Boolean);
-        if(resolved.length){
-          const items = applyFilters(resolved);
-          if(items.length){
-            renderList(items, 'Finnhub (quotes)');
-            logDebug({used:'finnhub_quotes',count:items.length});
-            playSoundIfLeaderChanged(items);
-            return;
-          }
-        }
-      } catch(e3){
-        // ignore
-      }
-      // final fallback -> demo
-      renderList(DEMO_FEED, 'DEMO (live failed)');
-      logDebug({error:[err1, err2], fallback:'demo'});
-      return;
-    }
-  }
-}
-
-/* --- helpers: leader changed alert --- */
-let lastLeader = '';
-function playSoundIfLeaderChanged(items){
-  const leader = items[0]?.symbol || '';
-  if(leader && leader !== lastLeader){
-    // play beep/vibrate once
-    playSound();
-  }
-  lastLeader = leader;
-}
-
-/* --- filtering --- */
+/* ---------- apply filters ---------- */
 function applyFilters(items){
-  const minV = Number(document.getElementById('minVol').value || 0);
+  const minVol = Number(document.getElementById('minVol').value||0);
   const prOnly = document.getElementById('prOnly').checked;
   const showAll = document.getElementById('showAll').checked;
-  // example PR filter: title contains 'press' or 'press release'
-  return items.filter(it=>{
-    if(!showAll && it.price < 0.01) return false;
-    if(minV && (Number(it.vol) || 0) < minV) return false;
-    if(prOnly && !/press|press release|press-release|pr/i.test(it.title || '')) return false;
+  return (items||[]).filter(it=>{
+    if(!showAll && (!it.price || it.price < 0.01)) return false;
+    if(minVol && (Number(it.vol) || 0) < minVol) return false;
+    if(prOnly && !/press|press release|pr/i.test(it.title || '')) return false;
     return true;
   });
 }
 
-/* --- auto-run timer --- */
-function startAutoScan(){
-  if(autoInterval) clearInterval(autoInterval);
-  nextScanIn = SCAN_INTERVAL;
-  autoInterval = setInterval(()=>{
-    nextScanIn--;
-    // progress bar
-    const pct = ((SCAN_INTERVAL - nextScanIn)/SCAN_INTERVAL)*100;
-    progressEl.style.width = pct + '%';
-    statusEl.textContent = `Next scan in: ${nextScanIn}s`;
-    if(nextScanIn <= 0){
-      doScan();
-      nextScanIn = SCAN_INTERVAL;
-    }
-  }, 1000);
-}
-
-/* --- UI events --- */
-soundToggle.addEventListener('click', ()=>{
-  soundOn = !soundOn;
-  soundState.textContent = soundOn ? 'ON' : 'OFF';
-});
-scanNowBtn.addEventListener('click', ()=>{ nextScanIn = 0; doScan(true); });
-forceDemoBtn.addEventListener('click', ()=>{ useDemo = !useDemo; forceDemoBtn.textContent = useDemo ? 'Demo: ON' : 'Force Demo'; doScan(); });
-presets.addEventListener('change', (e)=>{
-  const v=e.target.value;
-  if(v==='safe'){ document.getElementById('minVol').value='50000'; document.getElementById('showAll').checked=false; }
-  if(v==='aggro'){ document.getElementById('minVol').value='1000'; document.getElementById('showAll').checked=true; }
-  if(v==='default'){ document.getElementById('minVol').value='100000'; document.getElementById('showAll').checked=true; }
-});
-
-/* --- wake lock (best effort). iOS Safari doesn't support wakeLock API yet but other browsers might --- */
-wakeLockBtn.addEventListener('click', async ()=>{
-  if(!('wakeLock' in navigator)){ alert('Wake Lock not available in this browser'); return; }
+/* ---------- scan with rotation/fallback ---------- */
+async function doScan(manual=false){
+  if(useDemo && !manual){
+    render(DEMO, 'DEMO (forced)');
+    return;
+  }
+  // try FMP gainers -> FMP actives -> Finnhub per-symbol -> demo
+  const errors = [];
   try {
-    if(!wakeLock){
-      wakeLock = await navigator.wakeLock.request('screen');
-      wakeLockBtn.textContent = 'Wake Lock: ON';
-      wakeLock.addEventListener('release', ()=>{ wakeLock=null; wakeLockBtn.textContent='Wake Lock'; });
-    } else {
-      await wakeLock.release();
-      wakeLock = null; wakeLockBtn.textContent='Wake Lock';
+    const g = await fetchFmpGainers();
+    const items = (Array.isArray(g)?g:[]).slice(0,40).map(normalizeFmp);
+    const filtered = applyFilters(items);
+    if(filtered.length === 0) throw {source:'fmp_gainers', status:'no_items'};
+    render(filtered, 'FMP: gainers');
+    log({used:'fmp_gainers',count:filtered.length});
+    return;
+  } catch (e1) {
+    errors.push(e1);
+    try {
+      const a = await fetchFmpActives();
+      const items = (Array.isArray(a)?a:[]).slice(0,40).map(normalizeFmp);
+      const filtered = applyFilters(items);
+      if(filtered.length === 0) throw {source:'fmp_actives', status:'no_items'};
+      render(filtered, 'FMP: actives');
+      log({used:'fmp_actives',count:filtered.length});
+      return;
+    } catch (e2) {
+      errors.push(e2);
+      // try finn hub quotes for small list if key present
+      const finnKey = getFinnKey();
+      if(finnKey){
+        try {
+          const syms = ['SMOVE','TWG','DRCT','TRUE'];
+          const qps = syms.map(s => fetchFinnhubQuote(s).then(q=>{
+            return {symbol:s, price:q.c||0, vol:q.v||0, title:s + ' quote', status:(q.dp && Math.abs(q.dp)>5)?'HOT':'WARM'};
+          }).catch(err=>null));
+          const resolved = (await Promise.all(qps)).filter(Boolean);
+          const filtered = applyFilters(resolved);
+          if(filtered.length){
+            render(filtered, 'Finnhub quotes');
+            log({used:'finnhub_quotes',count:filtered.length});
+            return;
+          }
+        } catch(e3){
+          errors.push(e3);
+        }
+      }
+      // final fallback demo
+      render(DEMO, 'DEMO (api failed)');
+      log({error:errors, fallback:'demo'});
+      return;
     }
-  } catch (err){
-    console.error(err); alert('Wake lock failed: '+err.message);
-  }
-});
-
-/* --- daily reset: clears seen tickers and resets leader every UTC day --- */
-function dailyResetCheck(){
-  const last = localStorage.getItem('last_reset_date') || '';
-  const today = (new Date()).toISOString().slice(0,10);
-  if(last !== today){
-    localStorage.setItem('last_reset_date', today);
-    lastLeader = '';
-    // additional per-day cleanup can go here
   }
 }
 
-/* --- auto init --- */
-startAutoScan();
-dailyResetCheck();
+/* ---------- log helper, plus improved 403 hint ---------- */
+function log(obj){
+  // pretty debug text
+  try {
+    const text = JSON.stringify(obj,null,2);
+    debugEl.textContent = text;
+    // if any error includes 403 with "Legacy", add guided hint:
+    const s = text.toLowerCase();
+    if(s.includes('403') && s.includes('legacy')){
+      debugEl.textContent += "\\n\\nHINT: FMP returned 403 with 'Legacy Endpoint' — that means the key you used (or no key) does not have access to old endpoints. Paste a current FMP key (or use a Finnhub key) and press Save Keys. If you don't have a paid FMP account, use Finnhub or leave demo on.";
+    }
+  } catch(e){
+    debugEl.textContent = String(obj);
+  }
+}
+
+/* ---------- auto-scan timer ---------- */
+function startAuto(){
+  if(autoTimer) clearInterval(autoTimer);
+  nextScan = SCAN_INTERVAL;
+  autoTimer = setInterval(()=>{
+    nextScan--;
+    const pct = ((SCAN_INTERVAL - nextScan)/SCAN_INTERVAL)*100;
+    progressEl.style.width = pct + '%';
+    statusEl.textContent = `Next scan in: ${nextScan}s`;
+    if(nextScan<=0){
+      doScan();
+      nextScan = SCAN_INTERVAL;
+    }
+  },1000);
+}
+
+/* ---------- UI hookups ---------- */
+scanBtn.addEventListener('click', ()=>{ nextScan=0; doScan(true); });
+forceDemoBtn.addEventListener('click', ()=>{ useDemo = !useDemo; forceDemoBtn.textContent = useDemo ? 'Demo: ON' : 'Force Demo'; doScan(true); });
+
+/* run on load */
+startAuto();
 doScan();
 
-/* --- debugging: expose doScan for console --- */
+/* expose to console for quick testing */
 window.doScan = doScan;
-window.renderDemo = ()=>{ renderList(DEMO_FEED,'DEMO (manual)'); };
-
-/* load saved keys hint (only helpful if you store keys in localStorage previously) */
-(function loadLocalKeys(){
-  try {
-    const savedFmp = localStorage.getItem('fmp_key'); if(savedFmp && FMP_API_KEY==='PASTE_YOUR_FMP_KEY_HERE') console.warn('You have saved FMP key in localStorage — consider pasting into config for persistent hosting.');
-  } catch(e){}
-})();
+window.showDemo = ()=>{ render(DEMO,'DEMO (manual)'); };
 
 </script>
 </body>
