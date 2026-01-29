@@ -2,144 +2,132 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner v1 (Safe)</title>
+<title>Penny Scanner v1 (Alt Feed)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <style>
 body {
-  background:#0b1220;
-  color:#fff;
-  font-family:system-ui;
   margin:0;
-  padding:20px;
+  font-family: Arial, sans-serif;
+  background: linear-gradient(180deg,#050b1a,#0a142a);
+  color:#fff;
 }
-h1 {margin-bottom:10px;}
+header {
+  padding:16px;
+  font-size:28px;
+  font-weight:bold;
+}
 .controls {
   display:flex;
-  flex-wrap:wrap;
   gap:10px;
-  margin-bottom:15px;
+  padding:0 16px 10px;
+  align-items:center;
 }
-button,input {
-  background:#1c2438;
+input {
+  background:#111a2f;
   border:none;
   border-radius:8px;
-  padding:10px;
   color:white;
+  padding:8px;
+  width:120px;
+}
+button {
+  background:#1f2b50;
+  border:none;
+  border-radius:8px;
+  color:white;
+  padding:8px 12px;
+}
+#status {
+  padding:0 16px;
+  opacity:.7;
   font-size:14px;
 }
-.stock {
-  background:#111a2f;
-  border-left:6px solid #facc15;
-  padding:12px;
-  margin-bottom:10px;
-  border-radius:10px;
+.card {
+  background:#0f1b34;
+  margin:12px 16px;
+  padding:14px;
+  border-radius:12px;
+  border-left:5px solid #3aa0ff;
 }
-.hot { border-left-color:#22c55e; }
-.warm { border-left-color:#facc15; }
-.watch { border-left-color:#3b82f6; }
-a {color:#60a5fa;}
-.small {opacity:.7;font-size:13px;}
+.hot { border-left-color:#00ff99; }
+.warm { border-left-color:#ffaa00; }
+.watch { border-left-color:#888; }
+.symbol {
+  font-size:20px;
+  font-weight:bold;
+}
+.price { color:#3aa0ff; }
+.news {
+  margin-top:6px;
+  color:#ccc;
+}
+.status {
+  margin-top:6px;
+  font-weight:bold;
+}
+a { color:#3aa0ff; text-decoration:none; }
 </style>
 </head>
 
 <body>
-<h1>📈 Penny Scanner v1 (Safe)</h1>
+
+<header>📈 Penny Scanner v1 (Alt Feed)</header>
 
 <div class="controls">
-<button onclick="toggleSound()">🔔 Sound: <span id="soundState">ON</span></button>
-<input id="minVol" type="number" value="100000" placeholder="Min Volume">
-<label><input type="checkbox" id="prOnly"> PR Only</label>
+  <span>Min Vol</span>
+  <input type="number" id="minVol" value="100000">
+  <button onclick="scan()">Scan Now</button>
 </div>
 
-<div class="small" id="status">Loading...</div>
-<div id="stocks"></div>
-
-<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+<div id="status">Loading feed…</div>
+<div id="results"></div>
 
 <script>
-let soundOn=true;
-let lastLeader="";
+const FEED_URL = "https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=demo";
+let soundOn = true;
 
-function toggleSound(){
- soundOn=!soundOn;
- document.getElementById("soundState").textContent=soundOn?"ON":"OFF";
+async function scan(){
+  document.getElementById("status").innerText = "Scanning market…";
+  try {
+    const res = await fetch(FEED_URL);
+    const data = await res.json();
+    render(data);
+    document.getElementById("status").innerText = "Live feed updated";
+  } catch(e){
+    document.getElementById("status").innerText = "Feed error";
+    console.log(e);
+  }
 }
 
-async function fetchStocks(){
- const url="https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=25&scrIds=day_gainers";
- try{
-  const res=await fetch(url);
-  const data=await res.json();
-  processStocks(data.finance.result[0].quotes);
- }catch(e){
-  demoData();
- }
-}
+function render(stocks){
+  const minVol = Number(document.getElementById("minVol").value);
+  const list = document.getElementById("results");
+  list.innerHTML = "";
 
-function processStocks(list){
- const minVol=parseInt(document.getElementById("minVol").value||0);
- const prOnly=document.getElementById("prOnly").checked;
- let out=[];
- list.forEach(s=>{
-  if(!s.symbol || !s.regularMarketVolume) return;
-  if(s.regularMarketVolume<minVol) return;
-  let news=(s.longName||"")+" "+(s.shortName||"");
-  let hasPR=/press|launch|contract|approval|merger|acquire/i.test(news);
-  if(prOnly && !hasPR) return;
-  out.push({
-    sym:s.symbol,
-    price:s.regularMarketPrice,
-    vol:s.regularMarketVolume,
-    news:news.substring(0,120),
-    pr:hasPR
+  const filtered = stocks.filter(s => s.volume >= minVol && s.price <= 20);
+
+  filtered.slice(0,20).forEach(s=>{
+    let status="WATCH";
+    let cls="watch";
+    if(s.changesPercentage > 10){ status="HOT"; cls="hot"; }
+    else if(s.changesPercentage > 5){ status="WARM"; cls="warm"; }
+
+    const div = document.createElement("div");
+    div.className = `card ${cls}`;
+    div.innerHTML = `
+      <div class="symbol">${s.symbol} <span class="price">$${s.price.toFixed(2)}</span></div>
+      <div>Vol: ${s.volume.toLocaleString()}</div>
+      <div class="news">${s.name}</div>
+      <div class="status">Status: ${status}</div>
+      <a href="https://finance.yahoo.com/quote/${s.symbol}" target="_blank">📊 Chart</a>
+    `;
+    list.appendChild(div);
   });
- });
-
- render(out);
 }
 
-function render(list){
- const box=document.getElementById("stocks");
- box.innerHTML="";
- if(list.length==0){
-   box.innerHTML="<div class='small'>No stocks match filters.</div>";
-   return;
- }
- const leader=list[0].sym;
- document.getElementById("status").textContent="Leader: "+leader+" | Next scan in 30s";
-
- if(leader!==lastLeader && soundOn){
-   document.getElementById("beep").play();
-   lastLeader=leader;
- }
-
- list.forEach((s,i)=>{
-  let status=i==0?"HOT":i<3?"WARM":"WATCH";
-  let cls=status.toLowerCase();
-  box.innerHTML+=`
-  <div class="stock ${cls}">
-   <b>${s.sym}</b> $${s.price}<br>
-   Vol: ${s.vol.toLocaleString()}<br>
-   <span class="small">${s.news}</span><br>
-   <b>Status: ${status}</b><br>
-   <a href="https://finance.yahoo.com/quote/${s.sym}" target="_blank">📊 Chart</a>
-  </div>`;
- });
-}
-
-function demoData(){
- render([
-  {sym:"SMOVE",price:3.42,vol:800000,news:"SMOVE surges after press release"},
-  {sym:"TWG",price:5.11,vol:1200000,news:"TWG launches new product"},
-  {sym:"DRCT",price:2.95,vol:450000,news:"DRCT heavy volume after announcement"},
-  {sym:"TRUE",price:1.88,vol:250000,news:"TRUE reports earnings"}
- ]);
- document.getElementById("status").textContent="Demo mode (Yahoo blocked)";
-}
-
-fetchStocks();
-setInterval(fetchStocks,30000);
+scan();
+setInterval(scan, 30000);
 </script>
+
 </body>
 </html>
