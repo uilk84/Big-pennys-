@@ -1,247 +1,171 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner (Alt Feed, Multi-Fallback)</title>
+<meta charset="UTF-8" />
+<title>Penny Scanner v4</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
-:root{--bg:#071025;--panel:#0f1724;--muted:#9ca3af;--text:#e6eef8;--accent:#38bdf8}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,#050816,#071025);color:var(--text)}
-.container{padding:16px;max-width:980px;margin:0 auto}
-h1{margin:6px 0 14px;font-size:1.6rem}
-.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
-.controls > *{background:var(--panel);color:var(--text);border:none;padding:8px 10px;border-radius:10px}
-.small{color:var(--muted);font-size:13px;margin-bottom:10px}
-.card{background:#0c1a2b;padding:12px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.03)}
-.symbol{font-weight:800;color:var(--accent);font-size:1.05rem}
-.hot{border-left:4px solid #22c55e}
-.warm{border-left:4px solid #f59e0b}
-.watch{border-left:4px solid #64748b}
-.progress{height:6px;background:rgba(255,255,255,0.03);border-radius:6px;overflow:hidden;margin:6px 0}
-.progress > div{height:100%;width:0;background:linear-gradient(90deg,#2dd4bf,#3b82f6);transition:width .25s}
-.debug{font-family:monospace;font-size:12px;color:#cbd5e1;background:#071428;padding:8px;border-radius:8px;white-space:pre-wrap;max-height:160px;overflow:auto}
-.button{cursor:pointer}
-.input{background:#0b1624;border-radius:8px;border:none;color:var(--text);padding:8px}
+body {
+  background:#0b1220;
+  color:#fff;
+  font-family: Arial, sans-serif;
+  padding:15px;
+}
+h1 { margin-bottom:10px; }
+.controls {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-bottom:10px;
+}
+button,input,label {
+  background:#1b2436;
+  color:white;
+  border:none;
+  padding:8px 12px;
+  border-radius:8px;
+}
+.card {
+  background:#111a2b;
+  border-left:6px solid #444;
+  padding:12px;
+  margin-bottom:12px;
+  border-radius:12px;
+}
+.hot { border-color:#00ff9c; }
+.warm { border-color:#ffc107; }
+.watch { border-color:#4dabff; }
+.status { font-weight:bold; }
+a { color:#9ecbff; }
+.progress {
+  height:6px;
+  background:#333;
+  border-radius:6px;
+  overflow:hidden;
+  margin:10px 0;
+}
+.bar {
+  height:100%;
+  width:0%;
+  background:#00d4ff;
+}
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>📈 Penny Scanner (Alt Feed — multi-fallback)</h1>
 
-  <div class="controls">
-    <button id="soundBtn" class="button">🔔 Sound: <span id="soundState">ON</span></button>
-    <label>MinVol <input id="minVol" class="input" type="number" value="100000" style="width:110px"></label>
-    <label><input id="prOnly" type="checkbox"> PR Only</label>
-    <button id="scanNow" class="button">Scan Now</button>
-    <button id="forceDemo" class="button">Force Demo</button>
-  </div>
+<h1>📈 Penny Scanner v4</h1>
 
-  <div id="status" class="small">Starting...</div>
-  <div class="progress" aria-hidden="true"><div id="prog"></div></div>
-  <div id="feedInfo" class="small"></div>
-
-  <div id="cards" aria-live="polite"></div>
-
-  <div style="margin-top:12px">
-    <div style="margin-bottom:6px;color:var(--muted)">Raw response (preview) — use for debugging / screenshot:</div>
-    <div id="raw" class="debug">No response yet</div>
-  </div>
-
-  <audio id="beep"><source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+<div class="controls">
+<button onclick="toggleSound()">🔔 Sound: <span id="soundStatus">ON</span></button>
+<input id="minVol" type="number" value="100000" />
+<label><input type="checkbox" id="showAll" checked /> Show All</label>
+<label><input type="checkbox" id="prOnly" /> PR Only</label>
+<button onclick="scan()">Scan Now</button>
 </div>
 
+<div id="status">Status: ready</div>
+<div class="progress"><div id="bar" class="bar"></div></div>
+<div id="leader"></div>
+
+<div id="results"></div>
+
+<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
 <script>
-/*
-Multi-fallback alt-feed scanner.
-Feeds tried (in order):
-1) FinancialModelingPrep (direct)
-2) AllOrigins proxy -> FMP
-3) ThingProxy -> FMP
-If all fail, show demo.
+const API_KEY = "C3U8voH19zrxl5iCPHEDHSdOWgJwL6oi";
+const FMP_URL = "https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=" + API_KEY;
 
-Replace demo or add keys as needed later.
-*/
+let soundOn = true;
+let progress = 0;
 
-const FMP = "https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=demo";
-const ALLORIGINS = url => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-const THINGPROXY = url => "https://thingproxy.freeboard.io/fetch/" + url;
+const demoData = [
+ {symbol:"SMOVE", price:3.42, volume:800000, news:"SMOVE surges after press release"},
+ {symbol:"TWG", price:5.11, volume:1200000, news:"TWG launches new product"},
+ {symbol:"DRCT", price:2.95, volume:450000, news:"DRCT heavy volume after announcement"},
+ {symbol:"TRUE", price:1.88, volume:250000, news:"TRUE reports earnings"}
+];
 
-const statusEl = document.getElementById('status');
-const feedInfo = document.getElementById('feedInfo');
-const rawEl = document.getElementById('raw');
-const cards = document.getElementById('cards');
-const prog = document.getElementById('prog');
-const beep = document.getElementById('beep');
-
-let sound=true;
-document.getElementById('soundBtn').onclick = ()=>{
-  sound = !sound;
-  document.getElementById('soundState').textContent = sound ? 'ON':'OFF';
-};
-document.getElementById('scanNow').onclick = ()=> scan();
-document.getElementById('forceDemo').onclick = ()=>{ forcedDemo=true; scan(); }
-
-let forcedDemo=false;
-let lastLeader=null;
-
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-async function fetchWithTimeout(url, ms=8000){
-  const controller = new AbortController();
-  const id = setTimeout(()=>controller.abort(), ms);
-  try {
-    const res = await fetch(url, {signal: controller.signal, mode:'cors', cache:'no-store'});
-    clearTimeout(id);
-    return res;
-  } catch (err){
-    clearTimeout(id);
-    throw err;
-  }
-}
-
-async function tryFeedList(){
-  // returns {ok:true, json, source, status, textPreview}
-  const candidates = [
-    {name:'FMP direct', url: FMP},
-    {name:'FMP via AllOrigins', url: ALLORIGINS(FMP)},
-    {name:'FMP via ThingProxy', url: THINGPROXY(FMP)}
-  ];
-
-  for(const c of candidates){
-    try {
-      statusEl.textContent = `Trying ${c.name}…`;
-      prog.style.width = '10%';
-      const res = await fetchWithTimeout(c.url, 9000);
-      prog.style.width = '60%';
-      const text = await res.text();
-      prog.style.width = '90%';
-      // try parse
-      try {
-        const json = JSON.parse(text);
-        prog.style.width = '100%';
-        return { ok:true, json, source:c.name, status:res.status, textPreview: text.slice(0,800) };
-      } catch(parseErr){
-        // if it's plain array (sometimes returned as array string), try JSON parse fallback
-        try {
-          const alt = eval(text); // cautious: fallback, but only small preview - not ideal
-          if(Array.isArray(alt) || (alt && typeof alt === 'object')) {
-            return { ok:true, json:alt, source:c.name, status:res.status, textPreview: text.slice(0,800) };
-          }
-        } catch(e){}
-        // parsing failed — continue to next candidate but capture preview
-        feedInfo.textContent = `${c.name} returned but JSON parse failed (status ${res.status})`;
-        rawEl.textContent = text.slice(0,1200);
-      }
-    } catch(e){
-      // network or CORS error
-      feedInfo.textContent = `${c.name} error: ${e.message || e}`;
-      rawEl.textContent = (e.message||String(e)).slice(0,800);
-      // small delay then next
-      await sleep(300);
-      continue;
-    }
-  }
-
-  return { ok:false, error:'all_feeds_failed' };
-}
-
-function renderDemo(){
-  statusEl.textContent = "Demo mode (no live feed)";
-  rawEl.textContent = "Demo: fallback list";
-  const demo = [
-    {symbol:'SMOVE', price:3.42, volume:800000, name:'SMOVE surges after press release'},
-    {symbol:'TWG', price:5.11, volume:1200000, name:'TWG launches new product'},
-    {symbol:'DRCT', price:2.95, volume:450000, name:'DRCT heavy volume after announcement'},
-    {symbol:'TRUE', price:1.88, volume:250000, name:'TRUE reports earnings'}
-  ];
-  renderList(demo, "Demo");
-}
-
-function renderList(items, sourceText){
-  cards.innerHTML = '';
-  const minVol = Number(document.getElementById('minVol').value || 0);
-  const prOnly = document.getElementById('prOnly').checked;
-  let leaders = [];
-  items.forEach((s, idx) => {
-    // normalize fields for different feed shapes
-    const sym = (s.symbol || s.ticker || s.symbolName || s.symbolShort || s.code || '').toString().toUpperCase();
-    const price = (s.price || s.regularMarketPrice || s.price || s.last || 0);
-    const vol = (s.volume || s.regularMarketVolume || s.volume || s.v || 0);
-    const name = (s.name || s.companyName || s.shortName || s.title || s.headline || s.name || '');
-    if(!sym) return;
-    if(vol < minVol) return;
-    if(prOnly && !/press|launch|announce|acquir|merger|approval|contract/i.test(name)) return;
-
-    let score = 0;
-    if(vol >= minVol) score++;
-    if(/surge|soar|soars|jump|press|announce|spike|rally|launch/i.test(name)) score++;
-    if(idx===0) score++;
-
-    let cls='watch', label='WATCH';
-    if(score>=3){ cls='hot'; label='HOT'; leaders.push(sym);}
-    else if(score==2){ cls='warm'; label='WARM'; }
-    const card = document.createElement('div');
-    card.className = 'card '+cls;
-    card.innerHTML = `<div class="symbol"><a target="_blank" href="https://finance.yahoo.com/quote/${sym}" style="color:inherit;text-decoration:none">${sym} <span style="color:#60a5fa;font-weight:700">$${(price||0).toFixed? (price.toFixed(2)) : price}</span></a></div>
-                      <div style="margin-top:8px;color:var(--muted)">${name}</div>
-                      <div style="margin-top:8px">Vol: ${Number(vol).toLocaleString()} | Status: <strong>${label}</strong></div>`;
-    cards.appendChild(card);
-    if(label==='HOT' && sound) { try{ beep.play(); navigator.vibrate?.([200,100]); }catch(e){} }
-  });
-
-  if(leaders.length) {
-    statusEl.textContent = `Feed: ${sourceText} | Leader: ${leaders[0]} | Next scan in 30s`;
-  } else {
-    statusEl.textContent = `Feed: ${sourceText} | No leader | Next scan in 30s`;
-  }
+function toggleSound(){
+ soundOn = !soundOn;
+ document.getElementById("soundStatus").innerText = soundOn ? "ON":"OFF";
 }
 
 async function scan(){
-  prog.style.width = '0%';
-  if(forcedDemo){ renderDemo(); return; }
-  statusEl.textContent = 'Scanning feeds...';
-  prog.style.width = '5%';
-  try {
-    const result = await tryFeedList();
-    if(result.ok){
-      feedInfo.textContent = `Used: ${result.source} (HTTP ${result.status})`;
-      rawEl.textContent = result.textPreview || JSON.stringify(result.json).slice(0,1200);
-      // For FMP, the response is an array of objects with fields: symbol, price, volume, name
-      // Many APIs vary; attempt to normalize common shapes:
-      let items = result.json;
-      // if the API returns an object with 'symbolsList' or similar, try to locate the array
-      if(!Array.isArray(items) && items.data) items = items.data;
-      if(!Array.isArray(items) && items.finance && items.finance.result && Array.isArray(items.finance.result[0].quotes)) items = items.finance.result[0].quotes;
-      if(!Array.isArray(items)) {
-        // sometimes FMP returns array inside object differently; try to coerce
-        // fallback to demo
-        statusEl.textContent = 'Feed returned unexpected shape — using demo';
-        renderDemo();
-        return;
-      }
-      renderList(items, result.source);
-      prog.style.width = '100%';
-      return;
-    } else {
-      statusEl.textContent = 'All feeds failed — using demo';
-      rawEl.textContent = 'All feeds failed — check feedInfo above for last error';
-      renderDemo();
-    }
-  } catch(err){
-    statusEl.textContent = 'Scan error: ' + (err.message||err);
-    rawEl.textContent = (err.stack||err.message||String(err)).slice(0,1200);
-    renderDemo();
-  }
+ progress=0;
+ document.getElementById("bar").style.width="0%";
+ document.getElementById("status").innerText="Scanning...";
+ animateBar();
+
+ let data=[];
+ let used="LIVE";
+
+ try{
+   const res = await fetch(FMP_URL+"&t="+Date.now());
+   if(!res.ok) throw new Error("HTTP "+res.status);
+   data = await res.json();
+ }catch(err){
+   data = demoData;
+   used="DEMO (API blocked)";
+ }
+
+ processData(data,used);
 }
 
-// initial scan + repeating
+function animateBar(){
+ if(progress>=100) return;
+ progress+=5;
+ document.getElementById("bar").style.width=progress+"%";
+ setTimeout(animateBar,200);
+}
+
+function processData(data, used){
+ const minVol = parseInt(document.getElementById("minVol").value);
+ const showAll = document.getElementById("showAll").checked;
+ const prOnly = document.getElementById("prOnly").checked;
+
+ let filtered = data.filter(s => s.volume >= minVol);
+
+ if(prOnly){
+   filtered = filtered.filter(s => (s.news||"").toLowerCase().includes("press"));
+ }
+
+ if(!showAll){
+   filtered = filtered.slice(0,5);
+ }
+
+ let leader = filtered.length ? filtered[0].symbol : "None";
+ document.getElementById("leader").innerText="Leader: "+leader;
+ document.getElementById("status").innerText="Used: "+used+" | "+filtered.length+" stocks";
+
+ const box = document.getElementById("results");
+ box.innerHTML="";
+
+ filtered.forEach(stock=>{
+   let status="WATCH", cls="watch";
+   if(stock.volume>700000){ status="HOT"; cls="hot"; }
+   else if(stock.volume>400000){ status="WARM"; cls="warm"; }
+
+   const div=document.createElement("div");
+   div.className="card "+cls;
+   div.innerHTML=`
+   <strong>${stock.symbol} $${stock.price || "?"}</strong><br>
+   Vol: ${stock.volume}<br>
+   ${stock.news || "No news"}<br>
+   <span class="status">${status}</span><br>
+   <a href="https://www.tradingview.com/symbols/${stock.symbol}/" target="_blank">📊 Chart</a>
+   `;
+   box.appendChild(div);
+
+   if(soundOn && status==="HOT"){
+     document.getElementById("beep").play();
+   }
+ });
+
+}
+
 scan();
-setInterval(scan, 30000);
-
-// expose debug helper
-window._scanner = { scan, tryFeedList, FMP, ALLORIGINS:ALLORIGINS(FMP), THINGPROXY:THINGPROXY(FMP) };
-
+setInterval(scan,30000);
 </script>
+
 </body>
 </html>
