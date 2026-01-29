@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v4 — Key-friendly</title>
+<title>Penny Scanner v4 — Multi-feed rotation</title>
 <style>
   :root{--bg:#0e1720;--card:#0f1a23;--muted:#98a1ad;--link:#6cc3ff;--text:#e7eef6;--hot:#ffd166;--warm:#ffb86b;--good:#3ce88a}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial}
-  .wrap{max-width:820px;margin:14px auto;padding:14px}
-  h1{font-size:30px;margin:0 0 12px}
+  .wrap{max-width:920px;margin:10px auto;padding:14px}
+  h1{font-size:28px;margin:0 0 12px}
   .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-  .btn,input[type=text],select{background:linear-gradient(#0b1216,#0d161b);border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:10px}
+  .btn,input[type=text],select,textarea{background:linear-gradient(#0b1216,#0d161b);border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:10px}
   input.small{width:140px}
   label{color:var(--muted);display:flex;align-items:center;gap:8px}
-  .bar{height:6px;background:linear-gradient(90deg,#21c9d6,#6b5dff);border-radius:6px;margin:6px 0}
+  .bar{height:6px;background:linear-gradient(90deg,#21c9d6,#6b5dff);border-radius:6px;margin:8px 0}
   .list{display:grid;gap:12px;margin-top:12px}
   .card{background:var(--card);padding:14px;border-radius:12px}
   .ticker{font-weight:700;color:var(--link);font-size:18px}
@@ -24,11 +24,12 @@
   .kbox{display:flex;flex-direction:column;gap:6px}
   .muted{color:var(--muted)}
   a{color:var(--link)}
+  textarea{min-height:80px;min-width:320px;max-width:100%}
 </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>📈 Penny Scanner v4 (keys on-device)</h1>
+    <h1>📈 Penny Scanner v4 — Multi-feed rotation</h1>
 
     <div class="controls">
       <button id="scanNow" class="btn">Scan Now</button>
@@ -38,12 +39,12 @@
       <input id="minVol" class="small" type="text" value="100000" />
     </div>
 
-    <div class="muted">Paste your API keys below and click <strong>Save Keys</strong>. Keys are stored locally on your phone (in browser storage) — not uploaded anywhere.</div>
+    <div class="muted">Keys are stored locally on your phone (browser storage). Paste keys or custom feed URLs below.</div>
 
-    <div class="keys">
+    <div class="keys" style="margin-top:10px">
       <div class="kbox">
-        <label>FinancialModelingPrep Key (FMP)</label>
-        <input id="fmpKey" type="text" placeholder="FMP API key (paste here)" />
+        <label>FMP API Key</label>
+        <input id="fmpKey" type="text" placeholder="FinancialModelingPrep key (paste here)" />
       </div>
       <div class="kbox">
         <label>Finnhub Key (optional)</label>
@@ -55,7 +56,17 @@
       </div>
     </div>
 
-    <div class="status" id="status" style="margin-top:8px;color:var(--muted)">Feed: — | Next scan: —</div>
+    <div style="margin-top:12px">
+      <label style="display:block;margin-bottom:6px">Custom feeds (one JSON URL per line). These will be tried in rotation when main APIs fail.</label>
+      <textarea id="customFeeds" placeholder="https://yourdomain.com/feed1.json
+https://another.com/pennys.json"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="saveFeeds" class="btn">Save Feeds</button>
+        <button id="clearFeeds" class="btn">Clear Feeds</button>
+      </div>
+    </div>
+
+    <div id="status" class="muted" style="margin-top:12px">Feed: — | Next scan: —</div>
     <div class="bar" id="progress" style="width:0%"></div>
     <div style="margin-top:8px;color:var(--good)" id="leader">Leader: —</div>
 
@@ -65,21 +76,13 @@
   </div>
 
 <script>
-/* ---------- demo + utilities ---------- */
-const DEMO = [
-  {symbol:'SMOVE', price:3.42, vol:800000, title:'SMOVE surges after press release', status:'HOT'},
-  {symbol:'TWG', price:5.11, vol:1200000, title:'TWG launches new product', status:'WARM'},
-  {symbol:'DRCT', price:2.95, vol:450000, title:'DRCT heavy volume after announcement', status:'WARM'},
-  {symbol:'TRUE', price:1.88, vol:250000, title:'TRUE reports earnings', status:'WATCH'}
-];
-
-const SCAN_INTERVAL = 30; // seconds
+/* ---------- config ---------- */
+const SCAN_INTERVAL = 25; // seconds
 let nextScan = SCAN_INTERVAL;
 let autoTimer = null;
-let useDemo = false;
-let lastLeader = '';
+let forceDemo = false;
 
-/* DOM */
+/* ---------- elements ---------- */
 const listEl = document.getElementById('list');
 const debugEl = document.getElementById('debug');
 const statusEl = document.getElementById('status');
@@ -90,118 +93,215 @@ const fmpField = document.getElementById('fmpKey');
 const finnField = document.getElementById('finnKey');
 const saveBtn = document.getElementById('saveKeys');
 const clearBtn = document.getElementById('clearKeys');
-const scanBtn = document.getElementById('scanNow');
+const customTextarea = document.getElementById('customFeeds');
+const saveFeedsBtn = document.getElementById('saveFeeds');
+const clearFeedsBtn = document.getElementById('clearFeeds');
+
+const scanNowBtn = document.getElementById('scanNow');
 const forceDemoBtn = document.getElementById('forceDemo');
 
-/* load saved keys from localStorage on load */
-(function loadKeys(){
-  try {
-    const f = localStorage.getItem('fmp_key') || '';
-    const fi = localStorage.getItem('finnhub_key') || '';
-    fmpField.value = f;
-    finnField.value = fi;
-    if(f) log('Using saved FMP key from device (not repo).');
-  } catch(e){}
-})();
+/* ---------- demo data ---------- */
+const DEMO = [
+  {symbol:'SMOVE', price:3.42, vol:800000, title:'SMOVE surges after press release', status:'HOT'},
+  {symbol:'TWG', price:5.11, vol:1200000, title:'TWG launches new product', status:'WARM'},
+  {symbol:'DRCT', price:2.95, vol:450000, title:'DRCT heavy volume after announcement', status:'WARM'},
+  {symbol:'TRUE', price:1.88, vol:250000, title:'TRUE reports earnings', status:'WATCH'}
+];
 
-function log(...args){ debugEl.textContent = args.map(x => (typeof x==='object'?JSON.stringify(x,null,2):String(x))).join('\\n\\n'); }
-
+/* ---------- helper utils ---------- */
 function formatVol(v){ if(!v) return '0'; if(v>=1e6) return (v/1e6).toFixed(2)+'M'; if(v>=1e3) return (v/1e3).toFixed(0)+'K'; return String(v); }
 function formatPrice(p){ return (Number(p)||0).toFixed(2); }
+function pretty(obj){ try{return JSON.stringify(obj,null,2);}catch(e){return String(obj);}}
 
-/* ---------- saving & clearing keys ---------- */
-saveBtn.addEventListener('click', ()=>{
-  try {
-    localStorage.setItem('fmp_key', fmpField.value.trim());
-    localStorage.setItem('finnhub_key', finnField.value.trim());
-    alert('Keys saved locally. Scanning now...');
-    doScan(true);
-  } catch(e){
-    alert('Failed to save keys: '+e.message);
-  }
-});
-clearBtn.addEventListener('click', ()=>{
-  if(confirm('Clear saved keys from this browser?')){
-    localStorage.removeItem('fmp_key'); localStorage.removeItem('finnhub_key');
-    fmpField.value=''; finnField.value='';
-    alert('Keys cleared. The page will use DEMO if live calls fail.');
-    doScan(true);
-  }
-});
-
-/* ---------- fetch helpers that read localStorage keys ---------- */
-function getFmpKey(){ return localStorage.getItem('fmp_key') || fmpField.value.trim() || ''; }
-function getFinnKey(){ return localStorage.getItem('finnhub_key') || finnField.value.trim() || ''; }
-
-/* FMP gainers endpoint (v3) */
-async function fetchFmpGainers(){
-  const key = getFmpKey();
-  const url = key ? `https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${encodeURIComponent(key)}` : 'https://financialmodelingprep.com/api/v3/stock_market/gainers';
-  const res = await fetch(url);
-  if(!res.ok){
-    const text = await res.text().catch(()=>'<no body>');
-    throw {source:'FMP gainers', status:res.status, text};
-  }
-  return res.json();
+/* ---------- localStorage helpers ---------- */
+function loadKeys(){
+  fmpField.value = localStorage.getItem('fmp_key') || '';
+  finnField.value = localStorage.getItem('finnhub_key') || '';
+}
+function saveKeys(){
+  localStorage.setItem('fmp_key', fmpField.value.trim());
+  localStorage.setItem('finnhub_key', finnField.value.trim());
+}
+function clearKeys(){
+  localStorage.removeItem('fmp_key');
+  localStorage.removeItem('finnhub_key');
+  fmpField.value=''; finnField.value='';
 }
 
-/* FMP actives fallback */
-async function fetchFmpActives(){
-  const key = getFmpKey();
-  const url = key ? `https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${encodeURIComponent(key)}` : 'https://financialmodelingprep.com/api/v3/stock_market/actives';
-  const res = await fetch(url);
-  if(!res.ok){
-    const text = await res.text().catch(()=>'<no body>');
-    throw {source:'FMP actives', status:res.status, text};
-  }
-  return res.json();
+function loadFeeds(){
+  const raw = localStorage.getItem('custom_feeds') || '';
+  customTextarea.value = raw;
+}
+function saveFeeds(){
+  localStorage.setItem('custom_feeds', customTextarea.value.trim());
+}
+function clearFeeds(){
+  localStorage.removeItem('custom_feeds');
+  customTextarea.value='';
 }
 
-/* Finnhub per-symbol quote fallback (if user provides finnhub key) */
-async function fetchFinnhubQuote(symbol){
-  const key = getFinnKey();
-  if(!key) throw {source:'Finnhub', status:'no_key', text:'No finnhub key provided'};
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(key)}`;
-  const res = await fetch(url);
-  if(!res.ok) throw {source:'Finnhub quote', status:res.status, text: await res.text()};
-  return res.json();
-}
-
-/* normalize FMP item -> our shape */
-function normalizeFmp(item){
-  return {
-    symbol: item.symbol || item.ticker || item.symbol,
-    price: item.price || item.open || item.previousClose || 0,
-    vol: item.volume || item.volume || 0,
-    title: item.name || item.companyName || (item.symbol || '') + ' mover',
-    status: (item.changesPercentage && Math.abs(Number(item.changesPercentage))>10) ? 'HOT' : (item.changesPercentage && Math.abs(Number(item.changesPercentage))>3) ? 'WARM' : 'WATCH'
-  };
-}
-
-/* ---------- render ---------- */
-function render(items, feedUsed){
+/* ---------- show + render ---------- */
+function render(items, feedLabel){
   listEl.innerHTML = '';
-  if(!items || items.length === 0){
+  if(!items || items.length===0){
     listEl.innerHTML = '<div class="card">No results</div>';
     leaderEl.textContent = 'Leader: —';
     return;
   }
-  items.forEach((it, idx) => {
+  items.forEach((it, idx)=>{
     const card = document.createElement('div'); card.className='card';
     const badge = document.createElement('div'); badge.className='rightBadge'; badge.textContent = (idx+1);
     card.appendChild(badge);
-    const ticker = document.createElement('div'); ticker.className='ticker'; ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`; card.appendChild(ticker);
-    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || ''; card.appendChild(title);
-    const meta = document.createElement('div'); meta.className='meta'; meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <strong>${it.status||'—'}</strong>`; card.appendChild(meta);
-    const link = document.createElement('div'); link.style.marginTop='8px'; link.innerHTML = `<a href="#" onclick="event.preventDefault();window.open('https://www.tradingview.com/symbols/${encodeURIComponent(it.symbol)}/','_blank')">📈 Chart</a>`;
+    const ticker = document.createElement('div'); ticker.className='ticker';
+    ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`;
+    card.appendChild(ticker);
+    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || '';
+    card.appendChild(title);
+    const meta = document.createElement('div'); meta.className='meta';
+    meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <strong>${it.status||'—'}</strong>`;
+    card.appendChild(meta);
+    const link = document.createElement('div'); link.style.marginTop='8px';
+    link.innerHTML = `<a href="#" onclick="event.preventDefault();window.open('https://www.tradingview.com/symbols/${encodeURIComponent(it.symbol)}/','_blank')">📈 Chart</a>`;
     card.appendChild(link);
     listEl.appendChild(card);
   });
   leaderEl.textContent = 'Leader: ' + (items[0]?.symbol || '—');
-  statusEl.textContent = `Feed: ${feedUsed} | Next scan: ${nextScan}s`;
+  statusEl.textContent = `Feed: ${feedLabel} | Next scan: ${nextScan}s`;
 }
 
-/* ---------- apply filters ---------- */
+/* ---------- normalize helpers ---------- */
+function normalizeFmp(item){
+  return {
+    symbol: item.symbol || item.ticker || item[0] || '',
+    price: item.price || item.price || item.open || item.previousClose || 0,
+    vol: item.volume || item.volume || item.avgVolume || 0,
+    title: item.name || item.companyName || (item.symbol||'') + ' mover',
+    status: (item.changesPercentage && Math.abs(Number(item.changesPercentage))>10) ? 'HOT' : (item.changesPercentage && Math.abs(Number(item.changesPercentage))>3) ? 'WARM' : 'WATCH'
+  };
+}
+
+/* ---------- feed fetchers ---------- */
+async function fetchJson(url, opts = {}){
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  // try parse
+  try { const js = JSON.parse(text); return {ok:res.ok, status:res.status, text, data:js}; }
+  catch(e){ return {ok:res.ok, status:res.status, text, data:null}; }
+}
+
+/* ---------- build feed list to rotate ---------- */
+function buildFeedQueue(){
+  const queue = [];
+  const key = localStorage.getItem('fmp_key') || fmpField.value.trim();
+  const finn = localStorage.getItem('finnhub_key') || finnField.value.trim();
+  // prefer FMP gainers with key if available (legacy may 403)
+  if(key){
+    queue.push({type:'fmp_gainers', url:`https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${encodeURIComponent(key)}`});
+    // also include actives as second fallback
+    queue.push({type:'fmp_actives', url:`https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${encodeURIComponent(key)}`});
+  } else {
+    // try without key (may be rate-limited or blocked)
+    queue.push({type:'fmp_gainers', url:'https://financialmodelingprep.com/api/v3/stock_market/gainers'});
+    queue.push({type:'fmp_actives', url:'https://financialmodelingprep.com/api/v3/stock_market/actives'});
+  }
+  // finnhub base (we won't call bulk; the code uses finnhub per-symbol if needed)
+  if(finn) queue.push({type:'finnhub', url:'finnhub'});
+  // add custom feeds
+  const customRaw = localStorage.getItem('custom_feeds') || customTextarea.value.trim();
+  if(customRaw){
+    const lines = customRaw.split('\\n').map(s=>s.trim()).filter(Boolean);
+    for(const l of lines) queue.push({type:'custom', url:l});
+  }
+  // final demo fallback
+  queue.push({type:'demo', url:'demo'});
+  return queue;
+}
+
+/* ---------- single scan attempt using rotating queue ---------- */
+async function attemptScanOnce(){
+  if(forceDemo){
+    render(DEMO,'DEMO (forced)');
+    log({used:'demo_forced'});
+    return;
+  }
+
+  const queue = buildFeedQueue();
+  log({queue:queue.map(q=>q.type)});
+  for(let i=0;i<queue.length;i++){
+    const feed = queue[i];
+    try {
+      if(feed.type==='demo'){
+        render(DEMO,'DEMO');
+        return;
+      }
+      if(feed.type==='finnhub'){
+        // finn hub per-symbol fallback: try a short static list or from previous demo
+        const syms = ['SMOVE','TWG','DRCT','TRUE'];
+        // attempt quotes concurrently if key available
+        const key = localStorage.getItem('finnhub_key') || finnField.value.trim();
+        if(!key) throw {source:'finnhub', status:'no_key', text:'Finnhub key missing'};
+        const qproms = syms.map(s=>fetchJson(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${encodeURIComponent(key)}`));
+        const results = await Promise.all(qproms);
+        const parsed = results.map((r,idx)=>({symbol:syms[idx], price:(r.data && r.data.c) ? r.data.c : 0, vol:(r.data && r.data.v)?r.data.v:0, title:syms[idx] + ' quote', status:'WATCH'}));
+        const filtered = applyFilters(parsed);
+        if(filtered.length) { render(filtered,'Finnhub quotes'); return; } else throw {source:'finnhub', status:'no_items'};
+      }
+
+      if(feed.type==='custom'){
+        const r = await fetchJson(feed.url, {headers:{'Accept':'application/json'}});
+        if(!r.ok) throw {source:'custom', status:r.status, text:r.text};
+        let arr = Array.isArray(r.data) ? r.data : (r.data && r.data.items) ? r.data.items : null;
+        if(!arr) {
+          // try parsing if text looks like newline JSON lines
+          try{ arr = JSON.parse(r.text); } catch(e){ arr = null; }
+        }
+        if(!arr || !arr.length) throw {source:'custom', status:'no_data', text:r.text};
+        // assume items already normalized (symbol,price,vol,title,status) else map conservatively
+        const normalized = arr.slice(0,50).map(x=>({
+          symbol: x.symbol||x.ticker||x[0]||'?',
+          price: x.price||x.last||0,
+          vol: x.vol||x.volume||x.v||0,
+          title: x.title||x.name||'',
+          status: x.status||'WATCH'
+        }));
+        const filtered = applyFilters(normalized);
+        if(filtered.length){ render(filtered, feed.url); return; } else throw {source:'custom', status:'no_items'};
+      }
+
+      // FMP style (gainers / actives)
+      if(feed.type==='fmp_gainers' || feed.type==='fmp_actives'){
+        const r = await fetchJson(feed.url, {headers:{'Accept':'application/json'}});
+        // legacy 403 often returns JSON text mentioning "Legacy Endpoint"
+        if(!r.ok){
+          // include response text in thrown object for debug/hint
+          throw {source:feed.type, status:r.status, text:r.text};
+        }
+        let arr = Array.isArray(r.data) ? r.data : (r.data && r.data.symbolsList) ? r.data.symbolsList : null;
+        if(!arr) arr = Array.isArray(r.data?.data) ? r.data.data : null;
+        if(!arr && r.data && typeof r.data === 'object'){
+          // maybe wrapped differently
+          const vals = Object.values(r.data).filter(v=>Array.isArray(v) && v.length);
+          if(vals.length) arr = vals[0];
+        }
+        if(!arr || !arr.length) throw {source:feed.type, status:'no_items', text:r.text};
+        const normalized = arr.slice(0,80).map(normalizeFmp);
+        const filtered = applyFilters(normalized);
+        if(filtered.length){ render(filtered, feed.type); return; } else throw {source:feed.type, status:'no_items', text:'no items passed filters'};
+      }
+
+    } catch(err){
+      // If FMP returned a legacy/403 hint, attach that to the debug and continue to next feed
+      log({attempted:feed, error:err});
+      // continue to next feed in rotation
+    }
+  }
+
+  // if loop finishes w/o return, show demo
+  render(DEMO,'DEMO (fallback)');
+  log({fallback:'demo'});
+}
+
+/* ---------- filters ---------- */
 function applyFilters(items){
   const minVol = Number(document.getElementById('minVol').value||0);
   const prOnly = document.getElementById('prOnly').checked;
@@ -214,76 +314,24 @@ function applyFilters(items){
   });
 }
 
-/* ---------- scan with rotation/fallback ---------- */
-async function doScan(manual=false){
-  if(useDemo && !manual){
-    render(DEMO, 'DEMO (forced)');
-    return;
-  }
-  // try FMP gainers -> FMP actives -> Finnhub per-symbol -> demo
-  const errors = [];
-  try {
-    const g = await fetchFmpGainers();
-    const items = (Array.isArray(g)?g:[]).slice(0,40).map(normalizeFmp);
-    const filtered = applyFilters(items);
-    if(filtered.length === 0) throw {source:'fmp_gainers', status:'no_items'};
-    render(filtered, 'FMP: gainers');
-    log({used:'fmp_gainers',count:filtered.length});
-    return;
-  } catch (e1) {
-    errors.push(e1);
-    try {
-      const a = await fetchFmpActives();
-      const items = (Array.isArray(a)?a:[]).slice(0,40).map(normalizeFmp);
-      const filtered = applyFilters(items);
-      if(filtered.length === 0) throw {source:'fmp_actives', status:'no_items'};
-      render(filtered, 'FMP: actives');
-      log({used:'fmp_actives',count:filtered.length});
-      return;
-    } catch (e2) {
-      errors.push(e2);
-      // try finn hub quotes for small list if key present
-      const finnKey = getFinnKey();
-      if(finnKey){
-        try {
-          const syms = ['SMOVE','TWG','DRCT','TRUE'];
-          const qps = syms.map(s => fetchFinnhubQuote(s).then(q=>{
-            return {symbol:s, price:q.c||0, vol:q.v||0, title:s + ' quote', status:(q.dp && Math.abs(q.dp)>5)?'HOT':'WARM'};
-          }).catch(err=>null));
-          const resolved = (await Promise.all(qps)).filter(Boolean);
-          const filtered = applyFilters(resolved);
-          if(filtered.length){
-            render(filtered, 'Finnhub quotes');
-            log({used:'finnhub_quotes',count:filtered.length});
-            return;
-          }
-        } catch(e3){
-          errors.push(e3);
-        }
-      }
-      // final fallback demo
-      render(DEMO, 'DEMO (api failed)');
-      log({error:errors, fallback:'demo'});
-      return;
-    }
+/* ---------- logging helper ---------- */
+function log(obj){
+  debugEl.textContent = pretty(obj);
+  // if error contains "Legacy Endpoint" add hint
+  const txt = debugEl.textContent.toLowerCase();
+  if(txt.includes('legacy endpoint') || txt.includes('legacy endpoints')){
+    debugEl.textContent += "\\n\\nHINT: FMP returned 403 with 'Legacy Endpoint' — that means the key you used is not entitled to the older endpoints. Paste a current FMP key (or add a working custom feed or Finnhub key) and Save Keys/Feeds. If you don't have a paid FMP plan, use Finnhub/custom feed.";
   }
 }
 
-/* ---------- log helper, plus improved 403 hint ---------- */
-function log(obj){
-  // pretty debug text
-  try {
-    const text = JSON.stringify(obj,null,2);
-    debugEl.textContent = text;
-    // if any error includes 403 with "Legacy", add guided hint:
-    const s = text.toLowerCase();
-    if(s.includes('403') && s.includes('legacy')){
-      debugEl.textContent += "\\n\\nHINT: FMP returned 403 with 'Legacy Endpoint' — that means the key you used (or no key) does not have access to old endpoints. Paste a current FMP key (or use a Finnhub key) and press Save Keys. If you don't have a paid FMP account, use Finnhub or leave demo on.";
-    }
-  } catch(e){
-    debugEl.textContent = String(obj);
-  }
-}
+/* ---------- UI wiring ---------- */
+saveBtn.addEventListener('click', ()=>{ saveKeys(); alert('Keys saved locally. Doing a scan...'); doScan(true); });
+clearBtn.addEventListener('click', ()=>{ if(confirm('Clear saved keys?')){ clearKeys(); alert('Keys cleared'); doScan(true); }});
+saveFeedsBtn.addEventListener('click', ()=>{ saveFeeds(); alert('Custom feeds saved'); doScan(true); });
+clearFeedsBtn.addEventListener('click', ()=>{ if(confirm('Clear custom feeds?')){ clearFeeds(); alert('Feeds cleared'); doScan(true); }});
+
+scanNowBtn.addEventListener('click', ()=>{ nextScan=0; doScan(true); });
+forceDemoBtn.addEventListener('click', ()=>{ forceDemo = !forceDemo; forceDemoBtn.textContent = forceDemo ? 'Demo: ON' : 'Force Demo'; doScan(true); });
 
 /* ---------- auto-scan timer ---------- */
 function startAuto(){
@@ -293,7 +341,7 @@ function startAuto(){
     nextScan--;
     const pct = ((SCAN_INTERVAL - nextScan)/SCAN_INTERVAL)*100;
     progressEl.style.width = pct + '%';
-    statusEl.textContent = `Next scan in: ${nextScan}s`;
+    statusEl.textContent = `Next scan: ${nextScan}s`;
     if(nextScan<=0){
       doScan();
       nextScan = SCAN_INTERVAL;
@@ -301,18 +349,32 @@ function startAuto(){
   },1000);
 }
 
-/* ---------- UI hookups ---------- */
-scanBtn.addEventListener('click', ()=>{ nextScan=0; doScan(true); });
-forceDemoBtn.addEventListener('click', ()=>{ useDemo = !useDemo; forceDemoBtn.textContent = useDemo ? 'Demo: ON' : 'Force Demo'; doScan(true); });
+/* ---------- main scan entry ---------- */
+async function doScan(manual=false){
+  loadKeys();
+  loadFeeds();
+  if(forceDemo && !manual){
+    render(DEMO,'DEMO forced');
+    log({used:'demo_forced'});
+    return;
+  }
+  try {
+    await attemptScanOnce();
+  } catch(e){
+    log({fatal:e});
+    render(DEMO,'DEMO error');
+  }
+}
 
-/* run on load */
+/* ---------- init ---------- */
+loadKeys();
+loadFeeds();
 startAuto();
 doScan();
 
-/* expose to console for quick testing */
+/* expose for debug */
 window.doScan = doScan;
-window.showDemo = ()=>{ render(DEMO,'DEMO (manual)'); };
-
+window.debugShowQueue = ()=>console.log(buildFeedQueue());
 </script>
 </body>
 </html>
