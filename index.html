@@ -1,307 +1,389 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Penny Scanner v4 — Volume fix</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Penny Scanner v4</title>
 <style>
-  :root{--bg:#071025;--card:#0b1220;--muted:#99a6b3;--text:#e6eef6;--accent:#00d1a6}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial;background:linear-gradient(#071025,#0b1220);color:var(--text);padding:18px}
-  h1{margin:0 0 12px;font-size:28px}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-  .pill, .btn{background:#0e1b26;border-radius:12px;padding:8px 12px;color:var(--text);border:none}
-  input, select{background:#08121a;border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:8px;border-radius:8px}
-  .small{font-size:13px;color:var(--muted)}
-  .bar{height:6px;border-radius:6px;background:linear-gradient(90deg,#2dd4bf,#60a5fa);margin:10px 0;width:0%}
-  .card{background:var(--card);padding:14px;border-radius:10px;margin:10px 0;box-shadow:0 6px 20px rgba(0,0,0,0.45)}
-  .symbol{font-weight:800;color:#3ee0c6}
+  :root{
+    --bg:#0e1720; --card:#0f1a23; --muted:#98a1ad; --accent:#09d3a4; --hot:#ffd166; --warm:#ffb86b;
+    --text:#e7eef6; --link:#6cc3ff;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
+  .wrap{max-width:760px;margin:18px auto;padding:14px;}
+  h1{font-size:34px;margin:6px 0 12px}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+  .btn, input[type=text], select {background:linear-gradient(#101826,#0c151b);border-radius:12px;padding:10px 14px;border:1px solid rgba(255,255,255,0.03);color:var(--text)}
+  .btn{cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
+  .small{padding:8px 10px;border-radius:10px;font-size:14px}
+  input[type=text]{min-width:120px}
+  label{display:flex;align-items:center;gap:8px;color:var(--muted)}
+  .status{margin:8px 0;color:var(--muted)}
+  .bar{height:6px;border-radius:6px;background:linear-gradient(90deg,#24c6dc,#514aeb);margin:6px 0}
+  .list{margin-top:12px;display:grid;gap:12px}
+  .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+  .ticker{font-weight:700;color:var(--link);font-size:18px}
   .meta{color:var(--muted);margin-top:6px}
-  .debug{background:#081018;padding:10px;border-radius:8px;color:#bfeaf0;white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:10px;font-family:monospace;font-size:13px}
-  .warn{color:#ffcc66}
-  @media (max-width:520px){h1{font-size:22px}}
+  .statusTag{margin-top:8px;font-weight:700}
+  .yellow{color:var(--hot)} .orange{color:var(--warm)} .green{color:#33dd99}
+  .rightBadge{float:right;background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px}
+  pre.debug{background:#071018;color:#9ed1ff;padding:12px;border-radius:10px;overflow:auto;margin-top:12px}
+  .footer{height:80px}
+  a{color:var(--link)}
+  /* mobile spacing */
+  @media(min-width:600px){ .wrap{padding:20px} }
 </style>
 </head>
 <body>
-  <h1>📈 Penny Scanner v4 — Volume fix</h1>
+  <div class="wrap">
+    <h1>📈 Penny Scanner v4</h1>
 
-  <div class="controls">
-    <button id="toggleSound" class="pill">🔔 Sound: <span id="soundState">ON</span></button>
-    <label class="pill"><input id="showAll" type="checkbox" checked style="margin-right:8px">Show All</label>
-    <label class="pill"><input id="prOnly" type="checkbox" style="margin-right:8px">PR Only</label>
-    <input id="minVol" type="number" value="100000" style="width:110px"/>
-    <button id="scanNow" class="btn">Scan Now</button>
-    <button id="forceDemo" class="btn">Force Demo</button>
+    <div class="controls">
+      <button id="soundToggle" class="btn small">🔔 Sound: <span id="soundState">ON</span></button>
+
+      <label><input type="checkbox" id="showAll" checked /> Show All</label>
+
+      <label><input type="checkbox" id="prOnly" /> PR Only</label>
+
+      <input id="minVol" type="text" class="small" value="100000" placeholder="Min volume" />
+
+      <button id="scanNow" class="btn small">Scan Now</button>
+      <button id="forceDemo" class="btn small">Force Demo</button>
+
+      <select id="presets" class="small">
+        <option value="">Presets</option>
+        <option value="default">Default</option>
+        <option value="safe">SAFE (0.5–20)</option>
+        <option value="aggro">Aggro (0.1–1000)</option>
+      </select>
+
+      <button id="wakeLockBtn" class="btn small">Wake Lock</button>
+
+    </div>
+
+    <div class="status" id="sessionStatus">Feed: — | Next scan in: —</div>
+    <div class="bar" id="progressBar" style="width:0%"></div>
+
+    <div id="leaderLine" style="color:#3ce88a;margin-top:8px">Leader: —</div>
+
+    <div class="list" id="list"></div>
+
+    <div class="footer"></div>
+
+    <pre class="debug" id="debug"></pre>
   </div>
-
-  <div class="controls">
-    <label class="small">Prefetch Quotes:
-      <input id="prefetchToggle" type="checkbox" style="margin-left:6px" />
-    </label>
-    <label class="small">Top:
-      <input id="prefetchCount" type="number" value="3" style="width:60px;margin-left:6px"/>
-    </label>
-    <div style="flex:1"></div>
-    <div id="feedLine" class="small">Feed: — | Next scan: —</div>
-  </div>
-
-  <div class="bar" id="prog"></div>
-  <div id="leader" class="small" style="color:#00ffab;margin-top:6px">Leader: —</div>
-  <div id="results"></div>
-
-  <div id="apiStatus" class="small" style="margin-top:8px">API Status: idle</div>
-  <pre id="debug" class="debug" style="display:none"></pre>
 
 <script>
-/* CONFIG */
-const API_KEY = "PASTE_YOUR_FMP_KEY_HERE"; // <-- put your new FMP key here
-const INTERVAL_MS = 25000; // scan every 25s
-const FEEDS = [
-  {label:'Top Gainers', url: `https://financialmodelingprep.com/stable/biggest-gainers?apikey=${API_KEY}`},
-  {label:'Most Active', url: `https://financialmodelingprep.com/stable/most-active?apikey=${API_KEY}`},
-  {label:'Press Releases', url: `https://financialmodelingprep.com/stable/press-releases?apikey=${API_KEY}`}
-];
-// NOTE: quote endpoint used for per-symbol volume fetch
-const QUOTE_ENDPOINT = symbol => `https://financialmodelingprep.com/stable/quote/${encodeURIComponent(symbol)}?apikey=${API_KEY}`;
+/* ===========================================================
+   CONFIG: paste your keys here
+   =========================================================== */
+const FMP_API_KEY = 'D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ';      // FinancialModelingPrep (recommended)
+const FINNHUB_API_KEY = 'd1pdjtpr01qu436e4d50d1pdjtpr01qu436e4d5g'; // Finnhub (per-symbol fallback)
+const POLYGON_API_KEY = ''; // optional (if you have entitlement)
 
-/* DOM */
-const resultsEl = document.getElementById('results');
-const apiStatusEl = document.getElementById('apiStatus');
-const debugEl = document.getElementById('debug');
-const prog = document.getElementById('prog');
-const feedLine = document.getElementById('feedLine');
-const leaderEl = document.getElementById('leader');
+/* ===========================================================
+   END CONFIG
+   =========================================================== */
 
-let feedIndex = 0;
-let timer = null;
+/* --- runtime settings --- */
+const SCAN_INTERVAL = 30; // seconds between auto scans
 let useDemo = false;
 let soundOn = true;
+let wakeLock = null;
 
-document.getElementById('toggleSound').onclick = ()=>{
-  soundOn = !soundOn;
-  document.getElementById('soundState').innerText = soundOn ? 'ON':'OFF';
-};
-document.getElementById('scanNow').onclick = runScanImmediate;
-document.getElementById('forceDemo').onclick = ()=>{ useDemo=true; runScanImmediate(); };
+/* --- small demo feed so UI never goes blank --- */
+const DEMO_FEED = [
+  {symbol:'SMOVE', price:3.42, vol:800000, title:'SMOVE surges after press release', status:'HOT'},
+  {symbol:'TWG', price:5.11, vol:1200000, title:'TWG launches new product', status:'WARM'},
+  {symbol:'DRCT', price:2.95, vol:450000, title:'DRCT heavy volume after announcement', status:'WARM'},
+  {symbol:'TRUE', price:1.88, vol:250000, title:'TRUE reports earnings', status:'WATCH'}
+];
 
-function setProgress(p){ prog.style.width = Math.max(0,Math.min(100,p)) + '%'; }
-function showDebug(txt){ debugEl.style.display='block'; debugEl.textContent = txt; }
-function hideDebug(){ debugEl.style.display='none'; debugEl.textContent = ''; }
+/* --- DOM --- */
+const listEl = document.getElementById('list');
+const debugEl = document.getElementById('debug');
+const statusEl = document.getElementById('sessionStatus');
+const progressEl = document.getElementById('progressBar');
+const leaderEl = document.getElementById('leaderLine');
 
-function normalizeVol(obj){
-  // try many common fields
-  return Number(obj.volume || obj.totalVolume || obj.latestVolume || obj.avgVolume || obj.dayVolume || obj.total_volume || obj.v || obj.vol || 0) || 0;
+const soundToggle = document.getElementById('soundToggle');
+const soundState = document.getElementById('soundState');
+const scanNowBtn = document.getElementById('scanNow');
+const forceDemoBtn = document.getElementById('forceDemo');
+const presets = document.getElementById('presets');
+const wakeLockBtn = document.getElementById('wakeLockBtn');
+
+/* --- audio --- */
+const beep = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA='); // tiny placeholder
+
+/* --- helpers --- */
+function logDebug(...args){
+  debugEl.textContent = args.map(a => (typeof a==='object'?JSON.stringify(a,null,2):String(a))).join('\n\n');
 }
 
-async function fetchJson(url){
-  const res = await fetch(url, {cache:'no-store'});
-  const txt = await res.text();
-  try{ return {ok:res.ok, status:res.status, json: JSON.parse(txt), raw:txt}; }
-  catch(e){ return {ok:res.ok, status:res.status, json:null, raw:txt}; }
+function vibrate(){
+  if(navigator.vibrate) navigator.vibrate(200);
 }
-
-async function doOneFeed(){
-  if(!API_KEY || API_KEY.includes('PASTE_YOUR')) {
-    apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP key into the file.';
-    showDemo();
-    return;
+function playSound(){
+  if(soundOn) {
+    beep.currentTime = 0;
+    beep.play().catch(()=>{});
+    vibrate();
   }
+}
 
-  const feed = FEEDS[ feedIndex % FEEDS.length ];
-  feedLine.innerText = `Feed: ${feed.label} | Next scan: ${INTERVAL_MS/1000}s`;
-  setProgress(20);
-  apiStatusEl.innerText = `API Status: fetching ${feed.label}...`;
+/* --- styling helpers --- */
+function statusClass(status){
+  if(!status) return '';
+  const s = status.toLowerCase();
+  if(s.includes('hot')) return 'green';
+  if(s.includes('warm')) return 'orange';
+  if(s.includes('watch')) return '';
+  return '';
+}
 
-  const r = await fetchJson(feed.url);
-  setProgress(50);
+/* --- feed rotation --- 
+   Try sources in priority:
+   1) FMP top gainers (fast single call)
+   2) FMP top actives
+   3) per-symbol quote fallback from Finnhub for missing fields
+   4) demo feed
+*/
+async function fetchFMPGainers(){
+  // endpoint documented: /api/v3/stock_market/gainers
+  const url = `https://financialmodelingprep.com/api/v3/stock_market/gainers${FMP_API_KEY?`?apikey=${FMP_API_KEY}`:''}`;
+  const res = await fetch(url);
+  if(!res.ok) throw {source:'FMP gainers', status:res.status, text: await res.text()};
+  return res.json();
+}
 
-  if(!r.ok){
-    // show error text and try next feed fallback
-    showDebug(`HTTP ${r.status}\n\n${r.raw}`);
-    apiStatusEl.innerText = `API Status: HTTP ${r.status} — trying alt feeds or demo`;
-    // try other feeds quickly
-    for(let i=0;i<FEEDS.length;i++){
-      if(i === (feedIndex % FEEDS.length)) continue;
-      const alt = FEEDS[i];
-      const rr = await fetchJson(alt.url);
-      if(rr.ok){
-        hideDebug();
-        renderFromRaw(rr.json, alt.label);
-        feedIndex = i; // move to alt
-        setProgress(100);
-        return;
-      }
-    }
-    // else demo
-    showDemo();
-    setProgress(100);
-    return;
+async function fetchFMPActives(){
+  const url = `https://financialmodelingprep.com/api/v3/stock_market/actives${FMP_API_KEY?`?apikey=${FMP_API_KEY}`:''}`;
+  const res = await fetch(url);
+  if(!res.ok) throw {source:'FMP actives', status:res.status, text: await res.text()};
+  return res.json();
+}
+
+async function fetchFinnhubQuote(symbol){
+  if(!FINNHUB_API_KEY) throw {source:'Finnhub', status:'no_key'};
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${FINNHUB_API_KEY}`;
+  const res = await fetch(url);
+  if(!res.ok) throw {source:'Finnhub', status:res.status, text: await res.text()};
+  return res.json();
+}
+
+/* --- normalize FMP responses into internal items --- */
+function normalizeFMPItem(item){
+  // FMP top gainers sample fields: symbol, name, price, changesPercentage, volume, dayHigh, dayLow
+  return {
+    symbol: item.symbol || item.ticker || item.symbolName || 'UNK',
+    price: item.price || item.price || 0,
+    vol: item.volume || item.volume || item?.vol || 0,
+    title: item.name || item.companyName || (item.symbol || '') + ' mover',
+    status: (item.changesPercentage && Math.abs(parseFloat(item.changesPercentage))>10)?'HOT':(item.changesPercentage && Math.abs(parseFloat(item.changesPercentage))>3)?'WARM':'WATCH'
   }
-
-  hideDebug();
-  apiStatusEl.innerText = `API Status: LIVE (${feed.label})`;
-  // normalize and render
-  renderFromRaw(r.json, feed.label);
-  setProgress(100);
 }
 
-function showDemo(){
-  const demo = [
-    {symbol:'SMOVE', price:3.42, volume:800000, title:'SMOVE surges after press release'},
-    {symbol:'TWG', price:5.11, volume:1200000, title:'TWG launches new product'},
-    {symbol:'DRCT', price:2.95, volume:450000, title:'DRCT heavy volume after announcement'},
-    {symbol:'TRUE', price:1.88, volume:250000, title:'TRUE reports earnings'}
-  ];
-  renderList(demo, 'Demo');
-  apiStatusEl.innerText = 'API Status: DEMO (live failed)';
-}
+/* --- UI render --- */
+function renderList(items, feedUsed){
+  listEl.innerHTML = '';
+  if(items.length===0){ listEl.innerHTML = '<div class="card">No results</div>'; return; }
+  items.forEach((it, idx) => {
+    const card = document.createElement('div'); card.className = 'card';
+    const badge = document.createElement('div'); badge.className = 'rightBadge'; badge.textContent = (idx+1);
+    card.appendChild(badge);
+    const ticker = document.createElement('div'); ticker.className='ticker';
+    ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`;
+    card.appendChild(ticker);
+    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || '';
+    card.appendChild(title);
+    const meta = document.createElement('div'); meta.className='meta'; meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <span class="statusTag ${statusClass(it.status)}">${it.status||'—'}</span>`;
+    card.appendChild(meta);
 
-function renderFromRaw(raw, feedLabel){
-  // raw might be an object with data array or an array
-  let arr = [];
-  if(Array.isArray(raw)) arr = raw;
-  else if(raw && raw.data) arr = raw.data;
-  else if(raw && typeof raw === 'object') {
-    // sometimes feed uses keyed object; try to convert
-    arr = Object.values(raw);
-  } else arr = [];
+    const linkRow = document.createElement('div'); linkRow.style.marginTop='8px';
+    const chart = document.createElement('a'); chart.href = `#`; chart.className='small'; chart.textContent='📈 Chart';
+    chart.onclick = (e)=>{ e.preventDefault(); openQuickChart(it.symbol); };
+    linkRow.appendChild(chart);
+    card.appendChild(linkRow);
 
-  // map to common fields
-  const mapped = arr.map(item=>{
-    // FMP feed shapes vary; pick likely fields
-    const symbol = item.symbol || item.ticker || item.code || item[0] || '';
-    const price = item.price || item.close || item.last || (item.quote && item.quote.price) || 0;
-    const vol = normalizeVol(item);
-    const title = item.name || item.companyName || item.title || item.text || item.description || '';
-    return { symbol, price, volume: vol, title, raw: item };
+    listEl.appendChild(card);
   });
-
-  // If volumes are zero and prefetch enabled -> fetch per-symbol quotes for top N
-  const prefetch = document.getElementById('prefetchToggle').checked;
-  const prefetchCount = Math.max(0,Number(document.getElementById('prefetchCount').value || 0));
-  if(prefetch && prefetchCount > 0){
-    // pick top N symbols (first N in mapped)
-    fetchQuotesForTopN(mapped.slice(0,prefetchCount)).then(updated => {
-      // merge updated volumes back
-      const merged = mapped.map(m=>{
-        const u = updated.find(x=>x.symbol === m.symbol);
-        return u ? {...m, volume: (u.volume || m.volume)} : m;
-      });
-      renderList(merged, feedLabel);
-    }).catch(err=>{
-      console.warn('prefetch failed',err);
-      renderList(mapped, feedLabel);
-    });
-  } else {
-    renderList(mapped, feedLabel);
-  }
+  leaderEl.textContent = 'Leader: ' + (items[0]?.symbol || '—');
+  statusEl.textContent = `Feed: ${feedUsed} | Next scan in: ${nextScanIn}s`;
 }
 
-async function fetchQuotesForTopN(list){
-  // careful — per-symbol calls consume rate limit. keep N small.
-  const out = [];
-  for(const it of list){
-    if(!it.symbol) { out.push(it); continue; }
-    try{
-      const url = QUOTE_ENDPOINT(it.symbol);
-      const r = await fetchJson(url);
-      if(r.ok && Array.isArray(r.json) && r.json[0]){
-        const q = r.json[0];
-        const vol = normalizeVol(q);
-        out.push({ symbol: it.symbol, volume: vol, price: q.price || it.price });
-      } else {
-        out.push(it);
-      }
-    }catch(e){
-      out.push(it);
-    }
-    // small delay to reduce burst
-    await new Promise(res=>setTimeout(res, 250));
-  }
-  return out;
-}
-
-function renderList(items, sourceLabel){
-  resultsEl.innerHTML = '';
-  const minVol = Number(document.getElementById('minVol').value || 0);
-  const prOnly = document.getElementById('prOnly').checked;
-  const showAll = document.getElementById('showAll').checked;
-
-  // optionally filter PR only (we check title for 'press' keywords)
-  const filtered = items.filter(it=>{
-    if(!it) return false;
-    const isPress = /press|release|announc/i.test(it.title || '');
-    if(prOnly && !isPress) return false;
-    if(!showAll && minVol && (it.volume || 0) < minVol) return false;
-    return true;
-  });
-
-  if(filtered.length === 0){
-    resultsEl.innerHTML = '<div class="card small">No stocks match filters</div>';
-    leaderEl.innerText = 'Leader: —';
-    return;
-  }
-
-  // leader = highest volume
-  const leader = filtered.reduce((acc,cur)=> (cur.volume> (acc.volume||0) ? cur : acc), filtered[0]);
-  leaderEl.innerText = 'Leader: ' + (leader.symbol || '—');
-
-  filtered.forEach(it=>{
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><div class="symbol">${escapeHtml(it.symbol)} <span style="color:#9ad7ff;font-weight:700">\$${formatPrice(it.price)}</span></div>
-        <div class="meta">${escapeHtml(it.title)}</div>
-        <div class="meta">Vol: ${formatVol(it.volume)} | Status: <strong>${statusFromVol(it.volume)}</strong></div></div>
-        <div><a class="chartLink" href="https://finance.yahoo.com/quote/${encodeURIComponent(it.symbol)}/chart" target="_blank">📈 Chart</a></div>
-      </div>`;
-    resultsEl.appendChild(card);
-  });
-
-  apiStatusEl.innerText = `API Status: ${sourceLabel} | ${filtered.length} shown`;
-}
-
-/* helpers */
+/* --- small formatting --- */
 function formatVol(v){
   if(!v) return '0';
-  if(v>=1e9) return (v/1e9).toFixed(2)+'B';
-  if(v>=1e6) return (v/1e6).toFixed(2)+'M';
-  if(v>=1e3) return (v/1e3).toFixed(0)+'K';
-  return v;
+  if(v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+  if(v >= 1e3) return (v/1e3).toFixed(0) + 'K';
+  return String(v);
 }
-function formatPrice(p){return p?Number(p).toFixed(2):'0.00'}
-function statusFromVol(v){ if(v>1e6) return 'HOT'; if(v>4e5) return 'WARM'; return 'WATCH' }
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function formatPrice(p){ return (typeof p === 'number' ? p : Number(p) || 0).toFixed(2); }
 
-function runLoop(){
-  setProgress(0);
-  doOneFeed().catch(e=>{
-    console.error(e);
-    showDemo();
-  }).finally(()=>{
-    // schedule next rotation
-    feedIndex++;
-    clearTimeout(timer);
-    timer = setTimeout(runLoop, INTERVAL_MS);
-    // animate progress to next
-    let t=0; const step = 1000; const total = INTERVAL_MS;
-    const interval = setInterval(()=>{
-      t += step;
-      const pct = Math.min(100, Math.round((t/total)*100));
-      setProgress(pct);
-      if(t>=total) clearInterval(interval);
-    }, step);
+function openQuickChart(symbol){
+  // quick chart link to TradingView or similar (no API)
+  const url = `https://www.tradingview.com/symbols/${symbol}/`;
+  window.open(url,'_blank');
+}
+
+/* --- scan logic with fallbacks --- */
+let autoInterval = null;
+let nextScanIn = SCAN_INTERVAL;
+async function doScan(manual=false){
+  logDebug('Scanning... (manual: '+manual+')');
+  // check for forced demo
+  if(useDemo){ renderList(DEMO_FEED, 'DEMO (forced)'); playSound(); return; }
+
+  // try a sequence
+  try {
+    const fmp = await fetchFMPGainers();
+    // normalize top 10 & filter by minVol / PR only / showAll
+    let items = (Array.isArray(fmp)?fmp:[]).slice(0,30).map(normalizeFMPItem);
+    items = applyFilters(items);
+    if(items.length===0) throw {source:'fmp_gainers', message:'no items after filter'};
+    renderList(items, 'FMP: gainers');
+    logDebug({used:'fmp_gainers', count:items.length});
+    playSoundIfLeaderChanged(items);
+    return;
+  } catch (err1) {
+    // fallback -> try FMP actives
+    try {
+      const act = await fetchFMPActives();
+      let items = (Array.isArray(act)?act:[]).slice(0,40).map(normalizeFMPItem);
+      items = applyFilters(items);
+      if(items.length===0) throw {source:'fmp_actives', message:'no items after filter'};
+      renderList(items, 'FMP: actives');
+      logDebug({used:'fmp_actives', count:items.length});
+      playSoundIfLeaderChanged(items);
+      return;
+    } catch (err2) {
+      // if we have a finnhub key we can try per-symbol quotes for our demo set
+      try {
+        const demoSymbols = ['SMOVE','TWG','DRCT','TRUE'];
+        const quotePromises = demoSymbols.map(s=>fetchFinnhubQuote(s).then(q=>{
+          return {symbol:s, price:q.c||0, vol:q.v||0, title:s+' live quote', status:(q.c && q.dp && Math.abs(q.dp)>5)?'HOT':'WARM'};
+        }).catch(()=>null));
+        const resolved = (await Promise.all(quotePromises)).filter(Boolean);
+        if(resolved.length){
+          const items = applyFilters(resolved);
+          if(items.length){
+            renderList(items, 'Finnhub (quotes)');
+            logDebug({used:'finnhub_quotes',count:items.length});
+            playSoundIfLeaderChanged(items);
+            return;
+          }
+        }
+      } catch(e3){
+        // ignore
+      }
+      // final fallback -> demo
+      renderList(DEMO_FEED, 'DEMO (live failed)');
+      logDebug({error:[err1, err2], fallback:'demo'});
+      return;
+    }
+  }
+}
+
+/* --- helpers: leader changed alert --- */
+let lastLeader = '';
+function playSoundIfLeaderChanged(items){
+  const leader = items[0]?.symbol || '';
+  if(leader && leader !== lastLeader){
+    // play beep/vibrate once
+    playSound();
+  }
+  lastLeader = leader;
+}
+
+/* --- filtering --- */
+function applyFilters(items){
+  const minV = Number(document.getElementById('minVol').value || 0);
+  const prOnly = document.getElementById('prOnly').checked;
+  const showAll = document.getElementById('showAll').checked;
+  // example PR filter: title contains 'press' or 'press release'
+  return items.filter(it=>{
+    if(!showAll && it.price < 0.01) return false;
+    if(minV && (Number(it.vol) || 0) < minV) return false;
+    if(prOnly && !/press|press release|press-release|pr/i.test(it.title || '')) return false;
+    return true;
   });
 }
-function runScanImmediate(){ clearTimeout(timer); runLoop(); }
 
-// start
-if(!API_KEY || API_KEY.includes('PASTE_YOUR')) {
-  apiStatusEl.innerText = 'API Status: NO API KEY — paste your FMP key into API_KEY in the file.';
-  showDemo();
-} else {
-  runLoop();
+/* --- auto-run timer --- */
+function startAutoScan(){
+  if(autoInterval) clearInterval(autoInterval);
+  nextScanIn = SCAN_INTERVAL;
+  autoInterval = setInterval(()=>{
+    nextScanIn--;
+    // progress bar
+    const pct = ((SCAN_INTERVAL - nextScanIn)/SCAN_INTERVAL)*100;
+    progressEl.style.width = pct + '%';
+    statusEl.textContent = `Next scan in: ${nextScanIn}s`;
+    if(nextScanIn <= 0){
+      doScan();
+      nextScanIn = SCAN_INTERVAL;
+    }
+  }, 1000);
 }
+
+/* --- UI events --- */
+soundToggle.addEventListener('click', ()=>{
+  soundOn = !soundOn;
+  soundState.textContent = soundOn ? 'ON' : 'OFF';
+});
+scanNowBtn.addEventListener('click', ()=>{ nextScanIn = 0; doScan(true); });
+forceDemoBtn.addEventListener('click', ()=>{ useDemo = !useDemo; forceDemoBtn.textContent = useDemo ? 'Demo: ON' : 'Force Demo'; doScan(); });
+presets.addEventListener('change', (e)=>{
+  const v=e.target.value;
+  if(v==='safe'){ document.getElementById('minVol').value='50000'; document.getElementById('showAll').checked=false; }
+  if(v==='aggro'){ document.getElementById('minVol').value='1000'; document.getElementById('showAll').checked=true; }
+  if(v==='default'){ document.getElementById('minVol').value='100000'; document.getElementById('showAll').checked=true; }
+});
+
+/* --- wake lock (best effort). iOS Safari doesn't support wakeLock API yet but other browsers might --- */
+wakeLockBtn.addEventListener('click', async ()=>{
+  if(!('wakeLock' in navigator)){ alert('Wake Lock not available in this browser'); return; }
+  try {
+    if(!wakeLock){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLockBtn.textContent = 'Wake Lock: ON';
+      wakeLock.addEventListener('release', ()=>{ wakeLock=null; wakeLockBtn.textContent='Wake Lock'; });
+    } else {
+      await wakeLock.release();
+      wakeLock = null; wakeLockBtn.textContent='Wake Lock';
+    }
+  } catch (err){
+    console.error(err); alert('Wake lock failed: '+err.message);
+  }
+});
+
+/* --- daily reset: clears seen tickers and resets leader every UTC day --- */
+function dailyResetCheck(){
+  const last = localStorage.getItem('last_reset_date') || '';
+  const today = (new Date()).toISOString().slice(0,10);
+  if(last !== today){
+    localStorage.setItem('last_reset_date', today);
+    lastLeader = '';
+    // additional per-day cleanup can go here
+  }
+}
+
+/* --- auto init --- */
+startAutoScan();
+dailyResetCheck();
+doScan();
+
+/* --- debugging: expose doScan for console --- */
+window.doScan = doScan;
+window.renderDemo = ()=>{ renderList(DEMO_FEED,'DEMO (manual)'); };
+
+/* load saved keys hint (only helpful if you store keys in localStorage previously) */
+(function loadLocalKeys(){
+  try {
+    const savedFmp = localStorage.getItem('fmp_key'); if(savedFmp && FMP_API_KEY==='PASTE_YOUR_FMP_KEY_HERE') console.warn('You have saved FMP key in localStorage — consider pasting into config for persistent hosting.');
+  } catch(e){}
+})();
 
 </script>
 </body>
