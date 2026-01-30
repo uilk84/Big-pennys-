@@ -2,19 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner v8 (Live Only)</title>
+<title>Penny Scanner v8 (Finnhub Live)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{
   margin:0;
-  font-family:Arial,Helvetica,sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
   background:#0b1220;
   color:#e5f0ff;
 }
 header{
   text-align:center;
   padding:20px;
-  font-size:28px;
+  font-size:26px;
   font-weight:bold;
 }
 .controls{
@@ -25,11 +25,10 @@ header{
 }
 input,button{
   padding:10px 14px;
-  border-radius:8px;
+  border-radius:10px;
   border:none;
   font-size:16px;
 }
-input{width:120px;}
 button{
   background:#3b82f6;
   color:white;
@@ -59,11 +58,18 @@ button{
   margin-top:30px;
   color:#9fb7c6;
 }
+.leader{
+  text-align:center;
+  margin:8px;
+  font-weight:bold;
+  color:#22c55e;
+}
+a{color:#60a5fa;text-decoration:none;}
 </style>
 </head>
 <body>
 
-<header>📈 Penny Scanner v8 (Live Only)</header>
+<header>📈 Penny Scanner v8 (Finnhub Live Only)</header>
 
 <div class="controls">
   <input id="minVol" type="number" value="100000">
@@ -71,17 +77,19 @@ button{
 </div>
 
 <div class="status" id="status">Waiting for scan…</div>
+<div class="leader" id="leader"></div>
 <div id="results"></div>
 
 <script>
-const API_KEY ="D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ";
+// 🔑 PASTE YOUR FINNHUB KEY HERE
+const API_KEY = "d1pdjtpr01qu436e4d50d1pdjtpr01qu436e4d5g";
 
 function getSession(){
   const now = new Date();
-  const est = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
-  const h = est.getHours();
-  const m = est.getMinutes();
-  const t = h*60+m;
+  const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const h = et.getHours();
+  const m = et.getMinutes();
+  const t = h*60 + m;
 
   if(t>=240 && t<570) return "PRE-MARKET";
   if(t>=570 && t<960) return "OPEN";
@@ -89,10 +97,16 @@ function getSession(){
   return "CLOSED";
 }
 
-async function fetchTopMovers(){
-  const url = `https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${API_KEY}`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error("API failed");
+// Finnhub movers via symbols + quote
+async function fetchSymbols(){
+  const res = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${API_KEY}`);
+  if(!res.ok) throw new Error("Symbol list failed");
+  return await res.json();
+}
+
+async function fetchQuote(sym){
+  const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
+  if(!res.ok) throw new Error("Quote failed");
   return await res.json();
 }
 
@@ -112,30 +126,51 @@ async function runScan(){
   const session = getSession();
   const minVol = Number(document.getElementById("minVol").value);
   const results = document.getElementById("results");
-  results.innerHTML = "";
+  const leaderDiv = document.getElementById("leader");
+  results.innerHTML="";
+  leaderDiv.innerText="";
 
-  document.getElementById("status").innerText = `Session: ${session} | Live feed`;
+  document.getElementById("status").innerText = `Session: ${session} | Finnhub Live`;
 
   if(session==="CLOSED"){
-    results.innerHTML = `<div class="center">Market is closed. No scan available.</div>`;
+    results.innerHTML = `<div class="center">Market is closed</div>`;
     return;
   }
 
   try{
-    const data = await fetchTopMovers();
-    const filtered = data.filter(s => s.volume >= minVol);
+    const symbols = await fetchSymbols();
+    const slice = symbols.slice(0,30);
+
+    let stocks = [];
+
+    for(let s of slice){
+      const q = await fetchQuote(s.symbol);
+      if(q.v && q.c){
+        stocks.push({
+          symbol: s.symbol,
+          price: q.c,
+          volume: q.v
+        });
+      }
+    }
+
+    const filtered = stocks.filter(s => s.volume >= minVol);
 
     if(filtered.length===0){
       results.innerHTML = `<div class="center">No stocks found</div>`;
       return;
     }
 
+    filtered.sort((a,b)=>b.volume - a.volume);
+
+    leaderDiv.innerText = `🔥 Leader: ${filtered[0].symbol}`;
+
     filtered.forEach(stock=>{
       const status = statusFromVolume(stock.volume);
       const div = document.createElement("div");
       div.className = `card ${classFromStatus(status)}`;
       div.innerHTML = `
-        <strong>${stock.symbol} $${Number(stock.price).toFixed(2)}</strong><br>
+        <strong>${stock.symbol} $${stock.price.toFixed(2)}</strong><br>
         Vol: ${stock.volume.toLocaleString()}<br>
         Status: ${status}<br>
         <a href="https://www.tradingview.com/chart/?symbol=${stock.symbol}" target="_blank">📊 Chart</a>
@@ -144,10 +179,14 @@ async function runScan(){
     });
 
   }catch(err){
-    results.innerHTML = `<div class="error">⚠️ Live feed unavailable</div>`;
+    results.innerHTML = `<div class="error">⚠️ Live feed unavailable<br>${err.message}</div>`;
     document.getElementById("status").innerText = `Session: ${session} | API ERROR`;
   }
 }
+
+// auto refresh every 30s
+runScan();
+setInterval(runScan,30000);
 </script>
 
 </body>
