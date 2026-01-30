@@ -2,121 +2,145 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner v5</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Penny Scanner v7</title>
 <style>
 body {
   margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-  background:linear-gradient(180deg,#050b18,#0b132b);
-  color:#fff;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background:#0b1220;
+  color:white;
 }
-header {padding:20px;text-align:center;}
-.controls {display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+header {
+  padding:20px;
+  text-align:center;
+}
 input,button {
-  padding:10px 14px;border-radius:12px;border:none;
-  background:#1c2541;color:white;
+  padding:10px;
+  border-radius:12px;
+  border:none;
+  font-size:16px;
 }
-button {background:#3a86ff;}
-.status {margin-top:10px;color:#4cc9f0;}
-.stock {
-  margin:12px;padding:14px;border-radius:16px;
-  background:#111827;box-shadow:0 0 10px rgba(0,0,0,.4);
+button {
+  background:#3b82f6;
+  color:white;
 }
-.hot {border-left:5px solid #00ff99;}
-.warm {border-left:5px solid #ffaa00;}
-.watch {border-left:5px solid #4cc9f0;}
-a {color:#4cc9f0;text-decoration:none;}
-.footer {text-align:center;font-size:12px;opacity:.6;margin:20px;}
+#status { margin-top:10px; color:#38bdf8; }
+.leader { color:#22c55e; font-weight:bold; margin-top:10px;}
+.card {
+  background:#111827;
+  margin:15px;
+  padding:15px;
+  border-radius:16px;
+  box-shadow:0 0 10px rgba(0,0,0,.5);
+}
+.hot { border-left:6px solid #22c55e;}
+.warm { border-left:6px solid #facc15;}
+.watch { border-left:6px solid #38bdf8;}
+a { color:#60a5fa; text-decoration:none;}
 </style>
 </head>
+
 <body>
 
 <header>
-<h1>📈 Penny Scanner v5</h1>
-<div class="controls">
+<h1>📈 Penny Scanner v7</h1>
 <input id="minVol" type="number" value="100000">
 <button onclick="scan()">Scan Now</button>
-</div>
-<div class="status" id="status"></div>
+<div id="status"></div>
+<div id="leader" class="leader"></div>
 </header>
 
 <div id="results"></div>
 
-<div class="footer">Market session logic + Real news feed + Demo fallback</div>
+<audio id="beep">
+  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
 
 <script>
-const FINNHUB_KEY ="d5u3ehpr01qtjet1sfq0d5u3ehpr01qtjet1sfqg";
+let lastLeader = "";
 
-const demoData = [
- {symbol:"SMOVE",price:3.42,vol:800000,news:"surges after press release"},
- {symbol:"TWG",price:5.11,vol:1200000,news:"launches new product"},
- {symbol:"DRCT",price:2.95,vol:450000,news:"heavy volume after announcement"},
- {symbol:"TRUE",price:1.88,vol:250000,news:"reports earnings"}
-];
-
-function getMarketSession() {
-  const et = new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
-  const t = et.getHours()*60 + et.getMinutes();
-  if(t>=240 && t<570) return "PREMARKET";
-  if(t>=570 && t<960) return "RTH";
-  if(t>=960 && t<1200) return "AFTERHOURS";
+function marketSession(){
+  const now = new Date();
+  const est = now.getUTCHours() - 5;
+  if(est >= 4 && est < 9.5) return "PRE-MARKET";
+  if(est >= 9.5 && est < 16) return "OPEN";
+  if(est >= 16 && est < 20) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function classify(vol){
-  if(vol>800000) return "hot";
-  if(vol>400000) return "warm";
-  return "watch";
-}
-
-async function loadFinnhubNews(){
-  const url=`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`;
-  const res=await fetch(url);
-  if(!res.ok) throw new Error("Finnhub failed");
-  const data=await res.json();
-
-  return data.slice(0,10).map((n,i)=>({
-    symbol:n.related || "NEWS"+i,
-    price:(Math.random()*5+1).toFixed(2),
-    vol:Math.floor(Math.random()*1000000),
-    news:n.headline
-  }));
-}
-
-function render(stocks){
-  const minVol=Number(document.getElementById("minVol").value);
-  const div=document.getElementById("results");
-  div.innerHTML="";
-  stocks.filter(s=>s.vol>=minVol).forEach(s=>{
-    const cls=classify(s.vol);
-    div.innerHTML+=`
-      <div class="stock ${cls}">
-        <strong>${s.symbol} $${s.price}</strong><br>
-        Vol: ${s.vol.toLocaleString()}<br>
-        ${s.news}<br>
-        Status: ${cls.toUpperCase()}<br>
-        <a href="https://www.tradingview.com/chart/?symbol=${s.symbol}" target="_blank">📊 Chart</a>
-      </div>
-    `;
-  });
+function score(vol){
+  if(vol > 800000) return "HOT";
+  if(vol > 300000) return "WARM";
+  return "WATCH";
 }
 
 async function scan(){
-  const session=getMarketSession();
-  document.getElementById("status").textContent=
-    `Session: ${session} | Trying live news feed…`;
+  const minVol = parseInt(document.getElementById("minVol").value);
+  const session = marketSession();
+  document.getElementById("status").innerText = `Session: ${session} | Fetching Yahoo Top Gainers...`;
+
+  const url = "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=20&scrIds=day_gainers";
 
   try{
-    const stocks=await loadFinnhubNews();
-    document.getElementById("status").textContent=
-      `Session: ${session} | Live Finnhub feed`;
-    render(stocks);
-  }catch(e){
-    document.getElementById("status").textContent=
-      `Session: ${session} | API failed → Demo fallback`;
-    render(demoData);
+    const res = await fetch(url);
+    const data = await res.json();
+    const stocks = data.finance.result[0].quotes;
+    render(stocks, minVol);
+    document.getElementById("status").innerText = `Session: ${session} | Live Yahoo Finance`;
+  } catch(err){
+    console.log("Demo fallback", err);
+    demo(minVol);
+    document.getElementById("status").innerText = `Session: ${session} | Demo fallback`;
   }
+}
+
+function render(stocks, minVol){
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+  let leader = null;
+
+  stocks.forEach(s=>{
+    const vol = s.regularMarketVolume || 0;
+    if(vol < minVol) return;
+
+    if(!leader || vol > leader.regularMarketVolume) leader = s;
+
+    const status = score(vol);
+    const cls = status.toLowerCase();
+
+    const card = document.createElement("div");
+    card.className = `card ${cls}`;
+    card.innerHTML = `
+      <b>${s.symbol} $${s.regularMarketPrice}</b><br>
+      Vol: ${vol.toLocaleString()}<br>
+      Status: ${status}<br>
+      <a target="_blank" href="https://finance.yahoo.com/quote/${s.symbol}">📊 Chart</a>
+    `;
+    container.appendChild(card);
+
+    if(status === "HOT" && s.symbol !== lastLeader){
+      document.getElementById("beep").play();
+    }
+  });
+
+  if(leader){
+    document.getElementById("leader").innerText = `🔥 Leader: ${leader.symbol}`;
+    lastLeader = leader.symbol;
+  }
+
+  if(container.innerHTML === ""){
+    container.innerHTML = "<p style='text-align:center'>No stocks found</p>";
+  }
+}
+
+function demo(minVol){
+  const demoStocks = [
+    {symbol:"SMOVE", regularMarketPrice:3.42, regularMarketVolume:800000},
+    {symbol:"TWG", regularMarketPrice:5.11, regularMarketVolume:1200000},
+    {symbol:"DRCT", regularMarketPrice:2.95, regularMarketVolume:450000},
+    {symbol:"TRUE", regularMarketPrice:1.88, regularMarketVolume:250000}
+  ];
+  render(demoStocks, minVol);
 }
 
 scan();
