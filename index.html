@@ -2,149 +2,152 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner v7</title>
+<title>Penny Scanner v8 (Live Only)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body {
+body{
   margin:0;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:Arial,Helvetica,sans-serif;
   background:#0b1220;
-  color:white;
+  color:#e5f0ff;
 }
-header {
-  padding:20px;
+header{
   text-align:center;
+  padding:20px;
+  font-size:28px;
+  font-weight:bold;
 }
-input,button {
-  padding:10px;
-  border-radius:12px;
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  margin-bottom:10px;
+}
+input,button{
+  padding:10px 14px;
+  border-radius:8px;
   border:none;
   font-size:16px;
 }
-button {
+input{width:120px;}
+button{
   background:#3b82f6;
   color:white;
 }
-#status { margin-top:10px; color:#38bdf8; }
-.leader { color:#22c55e; font-weight:bold; margin-top:10px;}
-.card {
-  background:#111827;
-  margin:15px;
-  padding:15px;
-  border-radius:16px;
-  box-shadow:0 0 10px rgba(0,0,0,.5);
+.status{
+  text-align:center;
+  margin:10px;
+  color:#7dd3fc;
 }
-.hot { border-left:6px solid #22c55e;}
-.warm { border-left:6px solid #facc15;}
-.watch { border-left:6px solid #38bdf8;}
-a { color:#60a5fa; text-decoration:none;}
+.card{
+  background:#111a2e;
+  border-radius:14px;
+  padding:14px;
+  margin:12px;
+  box-shadow:0 0 10px rgba(0,0,0,.4);
+}
+.hot{border-left:5px solid #22c55e;}
+.warm{border-left:5px solid #facc15;}
+.watch{border-left:5px solid #38bdf8;}
+.error{
+  text-align:center;
+  margin-top:30px;
+  color:#f87171;
+}
+.center{
+  text-align:center;
+  margin-top:30px;
+  color:#9fb7c6;
+}
 </style>
 </head>
-
 <body>
 
-<header>
-<h1>📈 Penny Scanner v7</h1>
-<input id="minVol" type="number" value="100000">
-<button onclick="scan()">Scan Now</button>
-<div id="status"></div>
-<div id="leader" class="leader"></div>
-</header>
+<header>📈 Penny Scanner v8 (Live Only)</header>
 
+<div class="controls">
+  <input id="minVol" type="number" value="100000">
+  <button onclick="runScan()">Scan Now</button>
+</div>
+
+<div class="status" id="status">Waiting for scan…</div>
 <div id="results"></div>
 
-<audio id="beep">
-  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
-
 <script>
-let lastLeader = "";
+const API_KEY ="D4yDfLr9xiMutzRAXyjDnwEOqKm5xEyQ";
 
-function marketSession(){
+function getSession(){
   const now = new Date();
-  const est = now.getUTCHours() - 5;
-  if(est >= 4 && est < 9.5) return "PRE-MARKET";
-  if(est >= 9.5 && est < 16) return "OPEN";
-  if(est >= 16 && est < 20) return "AFTER-HOURS";
+  const est = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const h = est.getHours();
+  const m = est.getMinutes();
+  const t = h*60+m;
+
+  if(t>=240 && t<570) return "PRE-MARKET";
+  if(t>=570 && t<960) return "OPEN";
+  if(t>=960 && t<1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function score(vol){
-  if(vol > 800000) return "HOT";
-  if(vol > 300000) return "WARM";
+async function fetchTopMovers(){
+  const url = `https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${API_KEY}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("API failed");
+  return await res.json();
+}
+
+function statusFromVolume(v){
+  if(v>1000000) return "HOT";
+  if(v>300000) return "WARM";
   return "WATCH";
 }
 
-async function scan(){
-  const minVol = parseInt(document.getElementById("minVol").value);
-  const session = marketSession();
-  document.getElementById("status").innerText = `Session: ${session} | Fetching Yahoo Top Gainers...`;
+function classFromStatus(s){
+  if(s==="HOT") return "hot";
+  if(s==="WARM") return "warm";
+  return "watch";
+}
 
-  const url = "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=20&scrIds=day_gainers";
+async function runScan(){
+  const session = getSession();
+  const minVol = Number(document.getElementById("minVol").value);
+  const results = document.getElementById("results");
+  results.innerHTML = "";
+
+  document.getElementById("status").innerText = `Session: ${session} | Live feed`;
+
+  if(session==="CLOSED"){
+    results.innerHTML = `<div class="center">Market is closed. No scan available.</div>`;
+    return;
+  }
 
   try{
-    const res = await fetch(url);
-    const data = await res.json();
-    const stocks = data.finance.result[0].quotes;
-    render(stocks, minVol);
-    document.getElementById("status").innerText = `Session: ${session} | Live Yahoo Finance`;
-  } catch(err){
-    console.log("Demo fallback", err);
-    demo(minVol);
-    document.getElementById("status").innerText = `Session: ${session} | Demo fallback`;
-  }
-}
+    const data = await fetchTopMovers();
+    const filtered = data.filter(s => s.volume >= minVol);
 
-function render(stocks, minVol){
-  const container = document.getElementById("results");
-  container.innerHTML = "";
-  let leader = null;
-
-  stocks.forEach(s=>{
-    const vol = s.regularMarketVolume || 0;
-    if(vol < minVol) return;
-
-    if(!leader || vol > leader.regularMarketVolume) leader = s;
-
-    const status = score(vol);
-    const cls = status.toLowerCase();
-
-    const card = document.createElement("div");
-    card.className = `card ${cls}`;
-    card.innerHTML = `
-      <b>${s.symbol} $${s.regularMarketPrice}</b><br>
-      Vol: ${vol.toLocaleString()}<br>
-      Status: ${status}<br>
-      <a target="_blank" href="https://finance.yahoo.com/quote/${s.symbol}">📊 Chart</a>
-    `;
-    container.appendChild(card);
-
-    if(status === "HOT" && s.symbol !== lastLeader){
-      document.getElementById("beep").play();
+    if(filtered.length===0){
+      results.innerHTML = `<div class="center">No stocks found</div>`;
+      return;
     }
-  });
 
-  if(leader){
-    document.getElementById("leader").innerText = `🔥 Leader: ${leader.symbol}`;
-    lastLeader = leader.symbol;
-  }
+    filtered.forEach(stock=>{
+      const status = statusFromVolume(stock.volume);
+      const div = document.createElement("div");
+      div.className = `card ${classFromStatus(status)}`;
+      div.innerHTML = `
+        <strong>${stock.symbol} $${Number(stock.price).toFixed(2)}</strong><br>
+        Vol: ${stock.volume.toLocaleString()}<br>
+        Status: ${status}<br>
+        <a href="https://www.tradingview.com/chart/?symbol=${stock.symbol}" target="_blank">📊 Chart</a>
+      `;
+      results.appendChild(div);
+    });
 
-  if(container.innerHTML === ""){
-    container.innerHTML = "<p style='text-align:center'>No stocks found</p>";
+  }catch(err){
+    results.innerHTML = `<div class="error">⚠️ Live feed unavailable</div>`;
+    document.getElementById("status").innerText = `Session: ${session} | API ERROR`;
   }
 }
-
-function demo(minVol){
-  const demoStocks = [
-    {symbol:"SMOVE", regularMarketPrice:3.42, regularMarketVolume:800000},
-    {symbol:"TWG", regularMarketPrice:5.11, regularMarketVolume:1200000},
-    {symbol:"DRCT", regularMarketPrice:2.95, regularMarketVolume:450000},
-    {symbol:"TRUE", regularMarketPrice:1.88, regularMarketVolume:250000}
-  ];
-  render(demoStocks, minVol);
-}
-
-scan();
-setInterval(scan,30000);
 </script>
 
 </body>
