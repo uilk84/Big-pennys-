@@ -1,380 +1,62 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v4 — Multi-feed rotation</title>
-<style>
-  :root{--bg:#0e1720;--card:#0f1a23;--muted:#98a1ad;--link:#6cc3ff;--text:#e7eef6;--hot:#ffd166;--warm:#ffb86b;--good:#3ce88a}
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial}
-  .wrap{max-width:920px;margin:10px auto;padding:14px}
-  h1{font-size:28px;margin:0 0 12px}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-  .btn,input[type=text],select,textarea{background:linear-gradient(#0b1216,#0d161b);border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px;border-radius:10px}
-  input.small{width:140px}
-  label{color:var(--muted);display:flex;align-items:center;gap:8px}
-  .bar{height:6px;background:linear-gradient(90deg,#21c9d6,#6b5dff);border-radius:6px;margin:8px 0}
-  .list{display:grid;gap:12px;margin-top:12px}
-  .card{background:var(--card);padding:14px;border-radius:12px}
-  .ticker{font-weight:700;color:var(--link);font-size:18px}
-  .meta{color:var(--muted);margin-top:6px}
-  .rightBadge{float:right;background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px}
-  pre.debug{background:#071018;color:#9ed1ff;padding:12px;border-radius:10px;overflow:auto;margin-top:12px}
-  .keys{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .kbox{display:flex;flex-direction:column;gap:6px}
-  .muted{color:var(--muted)}
-  a{color:var(--link)}
-  textarea{min-height:80px;min-width:320px;max-width:100%}
-</style>
+  <title>Penny Scanner v4 (Stable)</title>
+  <style>
+    body { background:#0b1220;color:#fff;font-family:Arial;padding:15px }
+    button,input { padding:8px;border-radius:8px;margin:5px }
+    .card { background:#121c2e;padding:12px;margin:10px;border-left:6px solid #3fb }
+    .hot { border-color:#00ff9c }
+    .warm { border-color:#ffaa00 }
+    .watch { border-color:#66ccff }
+  </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>📈 Penny Scanner v4 — Multi-feed rotation</h1>
 
-    <div class="controls">
-      <button id="scanNow" class="btn">Scan Now</button>
-      <button id="forceDemo" class="btn">Force Demo</button>
-      <label><input id="showAll" type="checkbox" checked /> Show All</label>
-      <label><input id="prOnly" type="checkbox" /> PR Only</label>
-      <input id="minVol" class="small" type="text" value="100000" />
-    </div>
+<h2>📈 Penny Scanner v4 (Stable)</h2>
 
-    <div class="muted">Keys are stored locally on your phone (browser storage). Paste keys or custom feed URLs below.</div>
+Min Volume: <input id="minVol" value="100000">
+<button onclick="scan()">Scan Now</button>
 
-    <div class="keys" style="margin-top:10px">
-      <div class="kbox">
-        <label>FMP API Key</label>
-        <input id="fmpKey" type="text" placeholder="FinancialModelingPrep key (paste here)" />
-      </div>
-      <div class="kbox">
-        <label>Finnhub Key (optional)</label>
-        <input id="finnKey" type="text" placeholder="Finnhub key (optional)" />
-      </div>
-      <div style="display:flex;align-items:flex-end;gap:8px">
-        <button id="saveKeys" class="btn">Save Keys</button>
-        <button id="clearKeys" class="btn">Clear Keys</button>
-      </div>
-    </div>
-
-    <div style="margin-top:12px">
-      <label style="display:block;margin-bottom:6px">Custom feeds (one JSON URL per line). These will be tried in rotation when main APIs fail.</label>
-      <textarea id="customFeeds" placeholder="https://yourdomain.com/feed1.json
-https://another.com/pennys.json"></textarea>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button id="saveFeeds" class="btn">Save Feeds</button>
-        <button id="clearFeeds" class="btn">Clear Feeds</button>
-      </div>
-    </div>
-
-    <div id="status" class="muted" style="margin-top:12px">Feed: — | Next scan: —</div>
-    <div class="bar" id="progress" style="width:0%"></div>
-    <div style="margin-top:8px;color:var(--good)" id="leader">Leader: —</div>
-
-    <div class="list" id="list"></div>
-
-    <pre id="debug" class="debug"></pre>
-  </div>
+<div id="status"></div>
+<div id="results"></div>
 
 <script>
-/* ---------- config ---------- */
-const SCAN_INTERVAL = 25; // seconds
-let nextScan = SCAN_INTERVAL;
-let autoTimer = null;
-let forceDemo = false;
+const API_KEY = "d1pdjtpr01qu436e4d50d1pdjtpr01qu436e4d5g";
 
-/* ---------- elements ---------- */
-const listEl = document.getElementById('list');
-const debugEl = document.getElementById('debug');
-const statusEl = document.getElementById('status');
-const progressEl = document.getElementById('progress');
-const leaderEl = document.getElementById('leader');
+async function scan(){
+  document.getElementById("status").innerText="Scanning...";
+  document.getElementById("results").innerHTML="";
 
-const fmpField = document.getElementById('fmpKey');
-const finnField = document.getElementById('finnKey');
-const saveBtn = document.getElementById('saveKeys');
-const clearBtn = document.getElementById('clearKeys');
-const customTextarea = document.getElementById('customFeeds');
-const saveFeedsBtn = document.getElementById('saveFeeds');
-const clearFeedsBtn = document.getElementById('clearFeeds');
+  const movers = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${API_KEY}`);
+  const symbols = (await movers.json()).slice(0,50);
 
-const scanNowBtn = document.getElementById('scanNow');
-const forceDemoBtn = document.getElementById('forceDemo');
+  for(let s of symbols){
+    try{
+      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${s.symbol}&token=${API_KEY}`);
+      const d = await q.json();
 
-/* ---------- demo data ---------- */
-const DEMO = [
-  {symbol:'SMOVE', price:3.42, vol:800000, title:'SMOVE surges after press release', status:'HOT'},
-  {symbol:'TWG', price:5.11, vol:1200000, title:'TWG launches new product', status:'WARM'},
-  {symbol:'DRCT', price:2.95, vol:450000, title:'DRCT heavy volume after announcement', status:'WARM'},
-  {symbol:'TRUE', price:1.88, vol:250000, title:'TRUE reports earnings', status:'WATCH'}
-];
+      if(d.v > document.getElementById("minVol").value){
+        let status="WATCH";
+        if(d.dp>5) status="HOT";
+        else if(d.dp>2) status="WARM";
 
-/* ---------- helper utils ---------- */
-function formatVol(v){ if(!v) return '0'; if(v>=1e6) return (v/1e6).toFixed(2)+'M'; if(v>=1e3) return (v/1e3).toFixed(0)+'K'; return String(v); }
-function formatPrice(p){ return (Number(p)||0).toFixed(2); }
-function pretty(obj){ try{return JSON.stringify(obj,null,2);}catch(e){return String(obj);}}
-
-/* ---------- localStorage helpers ---------- */
-function loadKeys(){
-  fmpField.value = localStorage.getItem('fmp_key') || '';
-  finnField.value = localStorage.getItem('finnhub_key') || '';
-}
-function saveKeys(){
-  localStorage.setItem('fmp_key', fmpField.value.trim());
-  localStorage.setItem('finnhub_key', finnField.value.trim());
-}
-function clearKeys(){
-  localStorage.removeItem('fmp_key');
-  localStorage.removeItem('finnhub_key');
-  fmpField.value=''; finnField.value='';
-}
-
-function loadFeeds(){
-  const raw = localStorage.getItem('custom_feeds') || '';
-  customTextarea.value = raw;
-}
-function saveFeeds(){
-  localStorage.setItem('custom_feeds', customTextarea.value.trim());
-}
-function clearFeeds(){
-  localStorage.removeItem('custom_feeds');
-  customTextarea.value='';
-}
-
-/* ---------- show + render ---------- */
-function render(items, feedLabel){
-  listEl.innerHTML = '';
-  if(!items || items.length===0){
-    listEl.innerHTML = '<div class="card">No results</div>';
-    leaderEl.textContent = 'Leader: —';
-    return;
-  }
-  items.forEach((it, idx)=>{
-    const card = document.createElement('div'); card.className='card';
-    const badge = document.createElement('div'); badge.className='rightBadge'; badge.textContent = (idx+1);
-    card.appendChild(badge);
-    const ticker = document.createElement('div'); ticker.className='ticker';
-    ticker.innerHTML = `<a href="#" onclick="return false">${it.symbol} <span style="color:var(--text)">$${formatPrice(it.price)}</span></a>`;
-    card.appendChild(ticker);
-    const title = document.createElement('div'); title.className='meta'; title.textContent = it.title || '';
-    card.appendChild(title);
-    const meta = document.createElement('div'); meta.className='meta';
-    meta.innerHTML = `Vol: ${formatVol(it.vol)} | Status: <strong>${it.status||'—'}</strong>`;
-    card.appendChild(meta);
-    const link = document.createElement('div'); link.style.marginTop='8px';
-    link.innerHTML = `<a href="#" onclick="event.preventDefault();window.open('https://www.tradingview.com/symbols/${encodeURIComponent(it.symbol)}/','_blank')">📈 Chart</a>`;
-    card.appendChild(link);
-    listEl.appendChild(card);
-  });
-  leaderEl.textContent = 'Leader: ' + (items[0]?.symbol || '—');
-  statusEl.textContent = `Feed: ${feedLabel} | Next scan: ${nextScan}s`;
-}
-
-/* ---------- normalize helpers ---------- */
-function normalizeFmp(item){
-  return {
-    symbol: item.symbol || item.ticker || item[0] || '',
-    price: item.price || item.price || item.open || item.previousClose || 0,
-    vol: item.volume || item.volume || item.avgVolume || 0,
-    title: item.name || item.companyName || (item.symbol||'') + ' mover',
-    status: (item.changesPercentage && Math.abs(Number(item.changesPercentage))>10) ? 'HOT' : (item.changesPercentage && Math.abs(Number(item.changesPercentage))>3) ? 'WARM' : 'WATCH'
-  };
-}
-
-/* ---------- feed fetchers ---------- */
-async function fetchJson(url, opts = {}){
-  const res = await fetch(url, opts);
-  const text = await res.text();
-  // try parse
-  try { const js = JSON.parse(text); return {ok:res.ok, status:res.status, text, data:js}; }
-  catch(e){ return {ok:res.ok, status:res.status, text, data:null}; }
-}
-
-/* ---------- build feed list to rotate ---------- */
-function buildFeedQueue(){
-  const queue = [];
-  const key = localStorage.getItem('fmp_key') || fmpField.value.trim();
-  const finn = localStorage.getItem('finnhub_key') || finnField.value.trim();
-  // prefer FMP gainers with key if available (legacy may 403)
-  if(key){
-    queue.push({type:'fmp_gainers', url:`https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${encodeURIComponent(key)}`});
-    // also include actives as second fallback
-    queue.push({type:'fmp_actives', url:`https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${encodeURIComponent(key)}`});
-  } else {
-    // try without key (may be rate-limited or blocked)
-    queue.push({type:'fmp_gainers', url:'https://financialmodelingprep.com/api/v3/stock_market/gainers'});
-    queue.push({type:'fmp_actives', url:'https://financialmodelingprep.com/api/v3/stock_market/actives'});
-  }
-  // finnhub base (we won't call bulk; the code uses finnhub per-symbol if needed)
-  if(finn) queue.push({type:'finnhub', url:'finnhub'});
-  // add custom feeds
-  const customRaw = localStorage.getItem('custom_feeds') || customTextarea.value.trim();
-  if(customRaw){
-    const lines = customRaw.split('\\n').map(s=>s.trim()).filter(Boolean);
-    for(const l of lines) queue.push({type:'custom', url:l});
-  }
-  // final demo fallback
-  queue.push({type:'demo', url:'demo'});
-  return queue;
-}
-
-/* ---------- single scan attempt using rotating queue ---------- */
-async function attemptScanOnce(){
-  if(forceDemo){
-    render(DEMO,'DEMO (forced)');
-    log({used:'demo_forced'});
-    return;
-  }
-
-  const queue = buildFeedQueue();
-  log({queue:queue.map(q=>q.type)});
-  for(let i=0;i<queue.length;i++){
-    const feed = queue[i];
-    try {
-      if(feed.type==='demo'){
-        render(DEMO,'DEMO');
-        return;
+        document.getElementById("results").innerHTML+=`
+          <div class="card ${status.toLowerCase()}">
+            <b>${s.symbol} $${d.c}</b><br>
+            Vol: ${d.v}<br>
+            Change: ${d.dp}%<br>
+            Status: ${status}<br>
+            <a href="https://www.tradingview.com/symbols/${s.symbol}/" target="_blank">Chart</a>
+          </div>
+        `;
       }
-      if(feed.type==='finnhub'){
-        // finn hub per-symbol fallback: try a short static list or from previous demo
-        const syms = ['SMOVE','TWG','DRCT','TRUE'];
-        // attempt quotes concurrently if key available
-        const key = localStorage.getItem('finnhub_key') || finnField.value.trim();
-        if(!key) throw {source:'finnhub', status:'no_key', text:'Finnhub key missing'};
-        const qproms = syms.map(s=>fetchJson(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${encodeURIComponent(key)}`));
-        const results = await Promise.all(qproms);
-        const parsed = results.map((r,idx)=>({symbol:syms[idx], price:(r.data && r.data.c) ? r.data.c : 0, vol:(r.data && r.data.v)?r.data.v:0, title:syms[idx] + ' quote', status:'WATCH'}));
-        const filtered = applyFilters(parsed);
-        if(filtered.length) { render(filtered,'Finnhub quotes'); return; } else throw {source:'finnhub', status:'no_items'};
-      }
-
-      if(feed.type==='custom'){
-        const r = await fetchJson(feed.url, {headers:{'Accept':'application/json'}});
-        if(!r.ok) throw {source:'custom', status:r.status, text:r.text};
-        let arr = Array.isArray(r.data) ? r.data : (r.data && r.data.items) ? r.data.items : null;
-        if(!arr) {
-          // try parsing if text looks like newline JSON lines
-          try{ arr = JSON.parse(r.text); } catch(e){ arr = null; }
-        }
-        if(!arr || !arr.length) throw {source:'custom', status:'no_data', text:r.text};
-        // assume items already normalized (symbol,price,vol,title,status) else map conservatively
-        const normalized = arr.slice(0,50).map(x=>({
-          symbol: x.symbol||x.ticker||x[0]||'?',
-          price: x.price||x.last||0,
-          vol: x.vol||x.volume||x.v||0,
-          title: x.title||x.name||'',
-          status: x.status||'WATCH'
-        }));
-        const filtered = applyFilters(normalized);
-        if(filtered.length){ render(filtered, feed.url); return; } else throw {source:'custom', status:'no_items'};
-      }
-
-      // FMP style (gainers / actives)
-      if(feed.type==='fmp_gainers' || feed.type==='fmp_actives'){
-        const r = await fetchJson(feed.url, {headers:{'Accept':'application/json'}});
-        // legacy 403 often returns JSON text mentioning "Legacy Endpoint"
-        if(!r.ok){
-          // include response text in thrown object for debug/hint
-          throw {source:feed.type, status:r.status, text:r.text};
-        }
-        let arr = Array.isArray(r.data) ? r.data : (r.data && r.data.symbolsList) ? r.data.symbolsList : null;
-        if(!arr) arr = Array.isArray(r.data?.data) ? r.data.data : null;
-        if(!arr && r.data && typeof r.data === 'object'){
-          // maybe wrapped differently
-          const vals = Object.values(r.data).filter(v=>Array.isArray(v) && v.length);
-          if(vals.length) arr = vals[0];
-        }
-        if(!arr || !arr.length) throw {source:feed.type, status:'no_items', text:r.text};
-        const normalized = arr.slice(0,80).map(normalizeFmp);
-        const filtered = applyFilters(normalized);
-        if(filtered.length){ render(filtered, feed.type); return; } else throw {source:feed.type, status:'no_items', text:'no items passed filters'};
-      }
-
-    } catch(err){
-      // If FMP returned a legacy/403 hint, attach that to the debug and continue to next feed
-      log({attempted:feed, error:err});
-      // continue to next feed in rotation
-    }
+    } catch(e){}
   }
 
-  // if loop finishes w/o return, show demo
-  render(DEMO,'DEMO (fallback)');
-  log({fallback:'demo'});
+  document.getElementById("status").innerText="Scan complete";
 }
-
-/* ---------- filters ---------- */
-function applyFilters(items){
-  const minVol = Number(document.getElementById('minVol').value||0);
-  const prOnly = document.getElementById('prOnly').checked;
-  const showAll = document.getElementById('showAll').checked;
-  return (items||[]).filter(it=>{
-    if(!showAll && (!it.price || it.price < 0.01)) return false;
-    if(minVol && (Number(it.vol) || 0) < minVol) return false;
-    if(prOnly && !/press|press release|pr/i.test(it.title || '')) return false;
-    return true;
-  });
-}
-
-/* ---------- logging helper ---------- */
-function log(obj){
-  debugEl.textContent = pretty(obj);
-  // if error contains "Legacy Endpoint" add hint
-  const txt = debugEl.textContent.toLowerCase();
-  if(txt.includes('legacy endpoint') || txt.includes('legacy endpoints')){
-    debugEl.textContent += "\\n\\nHINT: FMP returned 403 with 'Legacy Endpoint' — that means the key you used is not entitled to the older endpoints. Paste a current FMP key (or add a working custom feed or Finnhub key) and Save Keys/Feeds. If you don't have a paid FMP plan, use Finnhub/custom feed.";
-  }
-}
-
-/* ---------- UI wiring ---------- */
-saveBtn.addEventListener('click', ()=>{ saveKeys(); alert('Keys saved locally. Doing a scan...'); doScan(true); });
-clearBtn.addEventListener('click', ()=>{ if(confirm('Clear saved keys?')){ clearKeys(); alert('Keys cleared'); doScan(true); }});
-saveFeedsBtn.addEventListener('click', ()=>{ saveFeeds(); alert('Custom feeds saved'); doScan(true); });
-clearFeedsBtn.addEventListener('click', ()=>{ if(confirm('Clear custom feeds?')){ clearFeeds(); alert('Feeds cleared'); doScan(true); }});
-
-scanNowBtn.addEventListener('click', ()=>{ nextScan=0; doScan(true); });
-forceDemoBtn.addEventListener('click', ()=>{ forceDemo = !forceDemo; forceDemoBtn.textContent = forceDemo ? 'Demo: ON' : 'Force Demo'; doScan(true); });
-
-/* ---------- auto-scan timer ---------- */
-function startAuto(){
-  if(autoTimer) clearInterval(autoTimer);
-  nextScan = SCAN_INTERVAL;
-  autoTimer = setInterval(()=>{
-    nextScan--;
-    const pct = ((SCAN_INTERVAL - nextScan)/SCAN_INTERVAL)*100;
-    progressEl.style.width = pct + '%';
-    statusEl.textContent = `Next scan: ${nextScan}s`;
-    if(nextScan<=0){
-      doScan();
-      nextScan = SCAN_INTERVAL;
-    }
-  },1000);
-}
-
-/* ---------- main scan entry ---------- */
-async function doScan(manual=false){
-  loadKeys();
-  loadFeeds();
-  if(forceDemo && !manual){
-    render(DEMO,'DEMO forced');
-    log({used:'demo_forced'});
-    return;
-  }
-  try {
-    await attemptScanOnce();
-  } catch(e){
-    log({fatal:e});
-    render(DEMO,'DEMO error');
-  }
-}
-
-/* ---------- init ---------- */
-loadKeys();
-loadFeeds();
-startAuto();
-doScan();
-
-/* expose for debug */
-window.doScan = doScan;
-window.debugShowQueue = ()=>console.log(buildFeedQueue());
 </script>
+
 </body>
 </html>
