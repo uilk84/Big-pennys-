@@ -1,367 +1,123 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner v9 (News + Session)</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<title>Penny Scanner v9</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  :root{
-    --bg:#071224;
-    --card:#0e1a26;
-    --muted:#9aa6b2;
-    --accent:#39d1b4;
-    --hot:#ffb020;
-    --cold:#7dd3fc;
-    --glass: rgba(255,255,255,0.03);
-    --radius:14px;
-  }
-  html,body{height:100%;margin:0;background:linear-gradient(180deg,#04101a 0%, #071224 100%);font-family:Inter,system-ui,Arial,sans-serif;color:#e6f0f5}
-  .wrap{max-width:820px;margin:18px auto;padding:18px}
-  h1{font-size:30px;margin:6px 0 12px;font-weight:800}
-  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .input, button, .pill{background:var(--card);border:0;padding:10px 14px;border-radius:10px;color:#e6f0f5;}
-  input[type="number"].input{width:120px}
-  .pill{display:inline-flex;align-items:center;gap:8px}
-  .muted{color:var(--muted);font-size:14px;margin-top:8px}
-  .status{margin-top:12px;font-weight:600;color:var(--accent)}
-  .bar{height:6px;background:linear-gradient(90deg,#2dd6b7,#4fb0ff);border-radius:6px;margin:10px 0;overflow:hidden}
-  .card{background:var(--card);border-radius:12px;padding:14px;margin:12px 0;box-shadow:0 6px 18px rgba(0,0,0,0.5)}
-  .symbol{font-weight:800;color:#5ff6d1;font-size:18px;text-decoration:underline}
-  .meta{color:var(--muted);margin-top:6px}
-  .status-tag{display:inline-block;padding:6px 8px;border-radius:8px;margin-top:8px;font-weight:700}
-  .btn{cursor:pointer}
-  .flex{display:flex;align-items:center;gap:10px}
-  .leader{color:#22f055;font-weight:700;margin-top:6px}
-  .small{font-size:13px;color:var(--muted)}
-  footer{height:60px}
-  /* small screen tweaks */
-  @media (max-width:420px){
-    h1{font-size:24px}
-    .toolbar{gap:8px}
-    .card{padding:12px}
-  }
+body {
+  margin:0;
+  font-family: Arial, sans-serif;
+  background:#0b1220;
+  color:#e5f0ff;
+}
+header {
+  text-align:center;
+  padding:16px;
+  font-size:26px;
+  font-weight:bold;
+}
+button {
+  padding:10px 16px;
+  border:none;
+  border-radius:10px;
+  background:#3b82f6;
+  color:white;
+  font-size:16px;
+}
+#status {
+  text-align:center;
+  margin:10px;
+  color:#7dd3fc;
+}
+.card {
+  background:#111a2e;
+  border-radius:14px;
+  padding:14px;
+  margin:12px;
+  box-shadow:0 0 10px rgba(0,0,0,.4);
+}
+.symbol {
+  font-weight:bold;
+  font-size:18px;
+}
+.headline {
+  margin-top:6px;
+  color:#cbd5f5;
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>📈 Penny Scanner v9 (News + Session)</h1>
 
-  <div class="toolbar">
-    <input id="minVol" class="input" type="number" placeholder="Min Volume" value="100000" />
-    <button id="scanBtn" class="btn input">Scan Now</button>
-    <button id="forceDemo" class="btn input">Force Demo</button>
-    <div style="flex:1"></div>
-    <label class="pill"><input id="soundToggle" type="checkbox" /> <span style="margin-left:8px">Sound</span></label>
-    <label class="pill"><input id="prOnly" type="checkbox" /> <span style="margin-left:8px">PR Only</span></label>
-  </div>
+<header>📈 Penny Scanner v9</header>
 
-  <div class="muted" id="sessionLine">Session: —</div>
-  <div class="muted" id="feedLine">Feed: —</div>
-  <div class="bar" id="progress" style="width:0%"></div>
-
-  <div id="leader" class="leader">Leader: —</div>
-
-  <div id="results"></div>
-
-  <div id="debug" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:220px"></div>
-
-  <div class="muted small" style="margin-top:10px">Notes: Real-time Finnhub news used by default. If live feed fails the scanner will show demo fallback entries. Replace the API key securely (see comments).</div>
-  <footer></footer>
+<div style="text-align:center;">
+  <button onclick="runScan()">Scan Now</button>
 </div>
 
+<div id="status">Waiting…</div>
+<div id="results"></div>
+
 <script>
-/*
-  IMPORTANT:
-  - Replace API_KEY below only for local testing. Do NOT commit a real key to a public repo.
-  - Better approach: create a Cloudflare Worker that proxies requests and hides FINNHUB token server-side.
-  - If you want the worker code, say "PROXY" and I will provide it.
-*/
+// 🔑 PUT YOUR FINNHUB KEY HERE (no spaces)
+const API_KEY = "d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0";
 
-// ========== CONFIG ==========
-const USE_PROXY = false; // set true if you will supply API_BASE pointing to your Cloudflare worker
-const API_BASE = "https://finnhub.io/api/v1"; // if USE_PROXY true, this should be your worker endpoint like "https://my-worker.example.workers.dev"
-const FINNHUB_KEY = "d1pdjtpr01qu436e4d50d1pdjtpr01qu436e4d5g"; // <<<< placeholder - don't commit!
-const AUTO_SCAN_INTERVAL = 20; // seconds
-const ROTATE_FEEDS = true; // rotate through feed sources
-// ============================
-
-// simple demo fallback dataset
-const DEMO_FEED = [
-  { symbol:"SMOVE", price:3.42, vol:800000, headline:"SMOVE surges after press release", status:"HOT" },
-  { symbol:"TWG",   price:5.11, vol:1200000, headline:"TWG launches new product", status:"WARM" },
-  { symbol:"DRCT",  price:2.95, vol:450000, headline:"DRCT heavy volume after announcement", status:"WARM" },
-  { symbol:"TRUE",  price:1.88, vol:250000, headline:"TRUE reports earnings", status:"WATCH" }
-];
-
-// possible feed sources (primary = finnHubNews)
-const FEEDS = [
-  { name:"Finnhub News", type:"finnhub", url:(params)=> `${API_BASE}/news?category=general${params}&token=${FINNHUB_KEY}` },
-  { name:"Demo", type:"demo" }
-];
-
-let state = {
-  feedIndex:0,
-  timer: AUTO_SCAN_INTERVAL,
-  autoScanHandle: null,
-  lastSession: null,
-  forcedDemo:false
-};
-
-// DOM
-const resultsEl = document.getElementById("results");
-const sessionLine = document.getElementById("sessionLine");
-const feedLine = document.getElementById("feedLine");
-const progress = document.getElementById("progress");
-const leaderEl = document.getElementById("leader");
-const debugEl = document.getElementById("debug");
-
-// helpers
-function formatNumber(n){
-  if(n >= 1e6) return (n/1e6).toFixed(1)+"M";
-  if(n >= 1e3) return (n/1e3).toFixed(0)+"K";
-  return String(n);
-}
-
-function getSession(){
-  // returns PRE-MARKET | REGULAR | POST-MARKET | CLOSED
+// Market session logic
+function getSession() {
   const now = new Date();
-  // to ET
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const h = et.getHours();
-  const m = et.getMinutes();
-  const t = h*60 + m;
-  // ET minutes
-  const preOpenStart = 4*60;     // 4:00
-  const openStart = 9*60 + 30;   // 9:30
-  const close = 16*60;           // 16:00
-  const postCloseEnd = 20*60;    // 20:00
-  if(t >= preOpenStart && t < openStart) return "PRE-MARKET";
-  if(t >= openStart && t < close) return "REGULAR";
-  if(t >= close && t < postCloseEnd) return "POST-MARKET";
+  const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const t = et.getHours()*60 + et.getMinutes();
+
+  if (t >= 240 && t < 570) return "PRE-MARKET";
+  if (t >= 570 && t <= 960) return "MARKET";
+  if (t > 960 && t <= 1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function renderStatusCard(item, idx){
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div class="symbol">${escapeHtml(item.symbol)} ${item.price ? ('$'+Number(item.price).toFixed(2)) : ''}</div>
-        <div class="meta">${escapeHtml(item.headline || '')}</div>
-        <div class="meta">Vol: ${item.vol ? formatNumber(item.vol) : '—'} | Status: <span style="font-weight:800">${item.status || 'WATCH'}</span></div>
-        <div style="margin-top:8px">
-          <a class="small" href="${item.url || '#'}" target="_blank">📈 Chart</a>
-        </div>
-      </div>
-      <div style="text-align:right;color:var(--muted)">
-        <div style="font-weight:800;font-size:18px">${idx+1}</div>
-      </div>
-    </div>
-  `;
-  return card;
-}
+async function runScan() {
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
 
-function escapeHtml(text){
-  if(!text) return '';
-  return text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
-}
-
-// fetch functions
-async function fetchFinnhubNews(){
-  // note: if USE_PROXY true, API_BASE should be the worker URL and the token usage depends on your worker implementation
-  const url = FEEDS.find(f=>f.type==='finnhub').url('');
-  const res = await fetch(url);
-  const json = await res.json();
-  return { ok: res.ok, status: res.status, json };
-}
-
-async function prefetchQuote(symbol){
-  try{
-    const url = `${API_BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${FINNHUB_KEY}`;
-    const res = await fetch(url);
-    if(!res.ok) return null;
-    const j = await res.json();
-    // finnHub quote returns c (current), v (volume) not always present for delisted
-    return { price: j.c || null, vol: j.v || null };
-  }catch(e){ return null; }
-}
-
-// core scan
-async function runScan(manual=false){
-  const minVol = Number(document.getElementById('minVol').value) || 0;
-  const prOnly = document.getElementById('prOnly').checked;
-  const forceDemo = state.forcedDemo;
   const session = getSession();
-  sessionLine.textContent = `Session: ${session} | ${forceDemo ? 'Demo forced' : 'Finnhub News'}`;
-  const feedObj = FEEDS[state.feedIndex] || FEEDS[0];
-  feedLine.textContent = `Feed: ${feedObj.name}`;
+  statusEl.innerText = `Session: ${session} | Live Finnhub News`;
 
-  // clear
-  resultsEl.innerHTML = '';
-  debugEl.style.display = 'none';
-  leaderEl.textContent = 'Leader: —';
-
-  // choose data source
-  if(forceDemo || feedObj.type === 'demo'){
-    // show demo
-    DEMO_FEED.forEach((d,i)=> resultsEl.appendChild(renderStatusCard(d,i)));
-    leaderEl.textContent = 'Leader: ' + (DEMO_FEED[0]?.symbol || '—');
+  if(session === "CLOSED"){
+    resultsEl.innerHTML = "<p style='text-align:center;'>Market closed</p>";
     return;
   }
 
-  // otherwise, try news fetch
   try {
-    const { ok, status, json } = await fetchFinnhubNews();
-    if(!ok || !Array.isArray(json)){
-      // failover
-      debugEl.style.display = 'block';
-      debugEl.textContent = JSON.stringify({ok,status,json},null,2);
-      fallbackToDemo(`Feed fetch failed (HTTP ${status}). Using demo.`);
-      return;
+    const url = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
+    const res = await fetch(url);
+
+    if(!res.ok){
+      throw new Error("API Error");
     }
 
-    // parse news -> extract symbols from `related` property
-    const items = [];
-    for(const n of json){
-      // finnhub news item has: id, category, datetime, headline, image, related (comma list), source, summary, url
-      if(!n.related) continue;
-      const relatedTicks = String(n.related).split(',').map(s=>s.trim()).filter(Boolean);
-      if(relatedTicks.length===0) continue;
-      for(const sym of relatedTicks){
-        // optional: skip non-cap alpha
-        const it = { symbol: sym.toUpperCase(), headline: n.headline || n.summary || '', url: n.url || '', source:n.source };
-        items.push(it);
-      }
-    }
+    const data = await res.json();
+    resultsEl.innerHTML = "";
 
-    if(items.length === 0){
-      fallbackToDemo('No related tickers in news; showing demo.');
-      return;
-    }
+    data.slice(0,15).forEach((item,i)=>{
+      const sym = item.related ? item.related.split(",")[0] : "NEWS";
+      resultsEl.innerHTML += `
+        <div class="card">
+          <div class="symbol">${sym}</div>
+          <div class="headline">${item.headline}</div>
+          <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
+        </div>
+      `;
+    });
 
-    // dedupe by symbol, keep first
-    const seen = new Set();
-    const uniq = [];
-    for(const it of items){
-      if(!seen.has(it.symbol)){
-        seen.add(it.symbol);
-        uniq.push(it);
-      }
-    }
-
-    // optionally prefetch quotes for top N
-    const prefetchQuotes = false; // toggle for speed; can be enabled
-    const results = [];
-    const top = uniq.slice(0, 30);
-    for(const u of top){
-      let q = { price:null, vol:null };
-      if(prefetchQuotes){
-        const pref = await prefetchQuote(u.symbol);
-        if(pref) q = pref;
-      }
-      // if no volume on quotes, let vol=0
-      const vol = q.vol || 0;
-      const status = classifyStatus(q, u);
-      // filter by PR only (headline contains 'press'/'press release' etc)
-      if(prOnly && !/press/i.test(u.headline)) continue;
-      if(vol < minVol && minVol>0) {
-        // still allow if prefetch disabled (so we don't filter out everything) - treat as pass when prefetch disabled
-        if(prefetchQuotes) continue;
-      }
-      results.push(Object.assign({ price:q.price, vol, status }, u));
-    }
-
-    if(results.length === 0){
-      fallbackToDemo('No stocks passed filters; showing demo.');
-      return;
-    }
-
-    // render
-    results.slice(0, 40).forEach((r,i)=> resultsEl.appendChild(renderStatusCard(r,i)));
-    leaderEl.textContent = 'Leader: ' + (results[0]?.symbol || '—');
-    debugEl.style.display = 'block';
-    debugEl.textContent = JSON.stringify({attempted:'finnhub', count:results.length},null,2);
-  } catch(err){
-    fallbackToDemo('Fetch error: ' + String(err));
+  } catch(e){
+    statusEl.innerText = `Session: ${session} | API ERROR`;
+    resultsEl.innerHTML = "<p style='text-align:center;color:red;'>Live feed unavailable</p>";
   }
 }
 
-function fallbackToDemo(msg){
-  debugEl.style.display = 'block';
-  debugEl.textContent = msg;
-  // show demo
-  resultsEl.innerHTML = '';
-  DEMO_FEED.forEach((d,i)=> resultsEl.appendChild(renderStatusCard(d,i)));
-  leaderEl.textContent = 'Leader: ' + (DEMO_FEED[0]?.symbol || '—');
-}
-
-// classify based on price/volume for a simple status
-function classifyStatus(q, u){
-  const vol = q.vol || 0;
-  const p = q.price || 0;
-  if(vol > 800000) return 'HOT';
-  if(vol > 300000) return 'WARM';
-  return 'WATCH';
-}
-
-// rotation & auto-scan
-function rotateFeed(){
-  if(!ROTATE_FEEDS) return;
-  state.feedIndex = (state.feedIndex + 1) % FEEDS.length;
-}
-
-function tickAutoScan(){
-  // progress bar & automatic rotate when timer runs out
-  state.timer--;
-  const pct = Math.max(0, ((AUTO_SCAN_INTERVAL - state.timer) / AUTO_SCAN_INTERVAL) * 100);
-  progress.style.width = pct+'%';
-  if(state.timer <= 0){
-    state.timer = AUTO_SCAN_INTERVAL;
-    rotateFeed();
-    runScan();
-  }
-}
-
-// UI hooks
-document.getElementById('scanBtn').addEventListener('click', ()=> { runScan(true); state.timer = AUTO_SCAN_INTERVAL; });
-document.getElementById('forceDemo').addEventListener('click', ()=>{
-  state.forcedDemo = !state.forcedDemo;
-  document.getElementById('forceDemo').textContent = state.forcedDemo ? 'Demo ON' : 'Force Demo';
-  runScan();
-});
-document.getElementById('soundToggle').addEventListener('change', ()=>{/* placeholder for sound alerts */});
-document.getElementById('prOnly').addEventListener('change', ()=> runScan());
-
-// daily reset (at 00:05 ET)
-function scheduleDailyReset(){
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const tomorrow = new Date(et);
-  tomorrow.setDate(et.getDate()+1);
-  tomorrow.setHours(0,5,0,0);
-  const ms = tomorrow - et;
-  setTimeout(()=>{
-    // reset local state
-    localStorage.removeItem('savedFeeds');
-    scheduleDailyReset();
-  }, ms);
-}
-
-// startup
-(function init(){
-  // display session
-  sessionLine.textContent = `Session: ${getSession()} | Finnhub News`;
-  // start auto-tick
-  state.timer = AUTO_SCAN_INTERVAL;
-  if(state.autoScanHandle) clearInterval(state.autoScanHandle);
-  state.autoScanHandle = setInterval(()=>{ tickAutoScan(); sessionLine.textContent = `Session: ${getSession()} | ${FEEDS[state.feedIndex].name}`; }, 1000);
-  // initial run
-  runScan();
-  scheduleDailyReset();
-})();
-
+// Auto refresh every 30 seconds
+runScan();
+setInterval(runScan,30000);
 </script>
+
 </body>
 </html>
