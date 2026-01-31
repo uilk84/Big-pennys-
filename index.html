@@ -1,123 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Penny Scanner v9</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Penny Scanner v11</title>
 <style>
-body {
-  margin:0;
-  font-family: Arial, sans-serif;
-  background:#0b1220;
-  color:#e5f0ff;
-}
-header {
-  text-align:center;
-  padding:16px;
-  font-size:26px;
-  font-weight:bold;
-}
-button {
-  padding:10px 16px;
-  border:none;
-  border-radius:10px;
-  background:#3b82f6;
-  color:white;
-  font-size:16px;
-}
-#status {
-  text-align:center;
-  margin:10px;
-  color:#7dd3fc;
-}
-.card {
-  background:#111a2e;
-  border-radius:14px;
-  padding:14px;
-  margin:12px;
-  box-shadow:0 0 10px rgba(0,0,0,.4);
-}
-.symbol {
-  font-weight:bold;
-  font-size:18px;
-}
-.headline {
-  margin-top:6px;
-  color:#cbd5f5;
-}
+body{margin:0;font-family:system-ui;background:#07111b;color:#e6eef8}
+.wrap{max-width:900px;margin:auto;padding:16px}
+h1{text-align:center}
+button,input{padding:10px;border-radius:10px;border:none}
+button{background:#2f80ed;color:white;font-weight:700;margin:5px}
+input{background:#0d1722;color:white;width:260px}
+.card{background:#0d1722;border-left:6px solid;border-radius:12px;padding:14px;margin:12px 0}
+.hot{border-color:#22c55e}
+.warm{border-color:#facc15}
+.watch{border-color:#60a5fa}
+.sym{font-weight:800;font-size:18px;color:#7ee3ff}
+.meta{color:#9fb4d6;font-size:13px}
+a{color:#8ec7ff}
+.status{text-align:center;margin:8px;color:#7dd3fc}
+.notice{text-align:center;color:#ffd780}
+.controls{text-align:center;margin:10px}
 </style>
 </head>
 <body>
+<div class="wrap">
+<h1>📈 Penny Scanner v11</h1>
 
-<header>📈 Penny Scanner v9</header>
-
-<div style="text-align:center;">
-  <button onclick="runScan()">Scan Now</button>
+<div class="controls">
+<input id="apiKey" placeholder="d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0"/>
+<button onclick="saveKey()">Save Key</button>
 </div>
 
-<div id="status">Waiting…</div>
+<div class="controls">
+<button onclick="scan()">Scan Now</button>
+<label><input type="checkbox" id="forceLive"> Force Live</label>
+<label><input type="checkbox" id="prOnly"> PR Only</label>
+<label><input type="checkbox" id="soundOn" checked> Sound</label>
+</div>
+
+<div class="controls">
+<button onclick="toggleAuto()">Auto Scan</button>
+</div>
+
+<div id="status" class="status"></div>
+<div id="notice" class="notice"></div>
 <div id="results"></div>
 
+<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
 <script>
-// 🔑 PUT YOUR FINNHUB KEY HERE (no spaces)
-const API_KEY = "d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0";
+const STORAGE="finnhub_key_v11";
+let autoTimer=null;
 
-// Market session logic
-function getSession() {
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
-  const t = et.getHours()*60 + et.getMinutes();
+document.getElementById("apiKey").value=localStorage.getItem(STORAGE)||"";
 
-  if (t >= 240 && t < 570) return "PRE-MARKET";
-  if (t >= 570 && t <= 960) return "MARKET";
-  if (t > 960 && t <= 1200) return "AFTER-HOURS";
+function saveKey(){
+  localStorage.setItem(STORAGE,apiKey.value.trim());
+  alert("API key saved");
+}
+
+function getSession(){
+  const et=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const t=et.getHours()*60+et.getMinutes();
+  if(t>=240 && t<570) return "PRE-MARKET";
+  if(t>=570 && t<=960) return "MARKET";
+  if(t>960 && t<=1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-async function runScan() {
-  const statusEl = document.getElementById("status");
-  const resultsEl = document.getElementById("results");
-
-  const session = getSession();
-  statusEl.innerText = `Session: ${session} | Live Finnhub News`;
-
-  if(session === "CLOSED"){
-    resultsEl.innerHTML = "<p style='text-align:center;'>Market closed</p>";
-    return;
-  }
-
-  try {
-    const url = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-    const res = await fetch(url);
-
-    if(!res.ok){
-      throw new Error("API Error");
-    }
-
-    const data = await res.json();
-    resultsEl.innerHTML = "";
-
-    data.slice(0,15).forEach((item,i)=>{
-      const sym = item.related ? item.related.split(",")[0] : "NEWS";
-      resultsEl.innerHTML += `
-        <div class="card">
-          <div class="symbol">${sym}</div>
-          <div class="headline">${item.headline}</div>
-          <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
-        </div>
-      `;
-    });
-
-  } catch(e){
-    statusEl.innerText = `Session: ${session} | API ERROR`;
-    resultsEl.innerHTML = "<p style='text-align:center;color:red;'>Live feed unavailable</p>";
+function toggleAuto(){
+  if(autoTimer){
+    clearInterval(autoTimer);
+    autoTimer=null;
+    alert("Auto scan OFF");
+  } else {
+    scan();
+    autoTimer=setInterval(scan,60000);
+    alert("Auto scan ON");
   }
 }
 
-// Auto refresh every 30 seconds
-runScan();
-setInterval(runScan,30000);
-</script>
+function score(vol){
+  if(vol>1000000) return "HOT";
+  if(vol>300000) return "WARM";
+  return "WATCH";
+}
 
+async function scan(){
+  const results=document.getElementById("results");
+  const status=document.getElementById("status");
+  const notice=document.getElementById("notice");
+  results.innerHTML="";
+  notice.innerText="";
+
+  const session=getSession();
+  status.innerText=`Session: ${session} | Finnhub Live`;
+
+  if(session==="CLOSED" && !forceLive.checked){
+    notice.innerText="Market closed";
+    return;
+  }
+
+  const key=localStorage.getItem(STORAGE);
+  if(!key){notice.innerText="No API key";return;}
+
+  try{
+    const newsRes=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
+    if(!newsRes.ok) throw "Finnhub failed";
+    const news=await newsRes.json();
+
+    const tickers=new Set();
+    news.forEach(n=>{
+      if(prOnly.checked && !n.headline.toLowerCase().includes("press")) return;
+      if(n.related){
+        n.related.split(",").forEach(t=>{
+          if(t && t.length<=5) tickers.add(t.trim());
+        });
+      }
+    });
+
+    let count=0;
+    for(const sym of tickers){
+      if(count>=12) break;
+
+      const from=new Date(Date.now()-86400000).toISOString().split("T")[0];
+      const to=new Date().toISOString().split("T")[0];
+
+      const newsR=await fetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${from}&to=${to}&token=${key}`);
+      if(!newsR.ok) continue;
+      const items=await newsR.json();
+      if(!items.length) continue;
+
+      const quoteR=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+      const quote=await quoteR.json();
+
+      const vol=quote.v||0;
+      const price=quote.c||"N/A";
+      const s=score(vol);
+
+      const card=document.createElement("div");
+      card.className=`card ${s.toLowerCase()}`;
+      card.innerHTML=`
+        <div class="sym">${sym} $${price}</div>
+        <div>${items[0].headline}</div>
+        <div class="meta">Vol: ${vol.toLocaleString()} | Status: ${s}</div>
+        <a href="${items[0].url}" target="_blank">Open source</a>
+      `;
+      results.appendChild(card);
+      if(soundOn.checked && s==="HOT") beep.play();
+      count++;
+    }
+
+    if(count===0){
+      notice.innerText="No ticker news found";
+    }
+
+  }catch(err){
+    notice.innerText="Finnhub error — trying Yahoo fallback";
+    yahooFallback();
+  }
+}
+
+async function yahooFallback(){
+  try{
+    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/trending/US");
+    const j=await r.json();
+    const list=j.finance.result[0].quotes.slice(0,10);
+    list.forEach(t=>{
+      const card=document.createElement("div");
+      card.className="card watch";
+      card.innerHTML=`
+        <div class="sym">${t.symbol}</div>
+        <div>${t.shortName||"Yahoo trending"}</div>
+        <div class="meta">Status: WATCH</div>
+      `;
+      results.appendChild(card);
+    });
+  } catch(e){
+    notice.innerText="All feeds failed";
+  }
+}
+</script>
+</div>
 </body>
 </html>
