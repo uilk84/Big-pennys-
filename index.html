@@ -2,65 +2,37 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v15</title>
+<title>Penny Scanner PRO v16</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-:root{
-  --bg:#050b16;
-  --card:#0f1b2d;
-  --text:white;
-}
-.light{
-  --bg:#f4f4f4;
-  --card:#ffffff;
-  --text:#000;
-}
-body{
-  margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  text-align:center;
-}
-h1{margin-top:15px;}
-input,button{
-  padding:12px;
-  border-radius:10px;
-  border:none;
-  font-size:16px;
-}
+:root{--bg:#050b16;--card:#0f1b2d;--text:white;}
+.light{--bg:#f4f4f4;--card:#ffffff;--text:black;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);text-align:center;}
+h1{margin-top:12px;}
+input,button{padding:10px;border-radius:8px;border:none;font-size:16px;}
 button{background:#2f80ff;color:white;}
-.toggle{margin:6px;}
-.card{
-  background:var(--card);
-  margin:12px;
-  padding:12px;
-  border-radius:14px;
-  box-shadow:0 6px 12px rgba(0,0,0,.4);
-  text-align:left;
-}
+.card{background:var(--card);margin:12px;padding:12px;border-radius:12px;text-align:left;}
 .hot{border-left:5px solid #00ff9c;}
-.warm{border-left:5px solid #ffaa00;}
+.warm{border-left:5px solid orange;}
 .watch{border-left:5px solid #5bc0ff;}
-a{color:#4db7ff;text-decoration:none;}
-.status{margin:8px;color:#4db7ff;}
 .star{float:right;font-size:20px;cursor:pointer;}
+.status{color:#7fd3ff;margin:5px;}
+a{color:#4db7ff;}
 </style>
 </head>
-
 <body>
 
-<h1>📈 Penny Scanner PRO v15</h1>
+<h1>📈 Penny Scanner PRO v16</h1>
 
 <input id="apiKey" placeholder="Paste Finnhub API Key">
 <button onclick="saveKey()">Save Key</button>
 
 <br><br>
 
-<input id="minVol" value="100000">
+<input id="minVol" value="200000">
 <button onclick="scan()">Scan Now</button>
 
-<div class="toggle">
+<div>
 <label><input type="checkbox" id="prOnly"> PR Only</label>
 <label><input type="checkbox" id="gainersOnly"> Top Gainers</label>
 <label><input type="checkbox" id="themeToggle" onchange="toggleTheme()"> Light Mode</label>
@@ -74,7 +46,6 @@ a{color:#4db7ff;text-decoration:none;}
 <div id="favorites"></div>
 
 <hr>
-
 <div id="results"></div>
 
 <audio id="alertSound">
@@ -82,112 +53,121 @@ a{color:#4db7ff;text-decoration:none;}
 </audio>
 
 <script>
-const STORAGE_KEY="FINNHUB_KEY";
-const FAV_KEY="FAVORITES";
+const KEY_STORE="FINNHUB_KEY_V16";
+const FAV_STORE="FAVS_V16";
 let autoTimer=null;
 
 function saveKey(){
-  const key=document.getElementById("apiKey").value.trim();
-  if(!key) return alert("Paste API key");
-  localStorage.setItem(STORAGE_KEY,key);
+  const k=document.getElementById("apiKey").value.trim();
+  if(!k) return alert("Paste API key");
+  localStorage.setItem(KEY_STORE,k);
   alert("API key saved");
 }
-
-function getKey(){return localStorage.getItem(STORAGE_KEY);}
-function getFavorites(){return JSON.parse(localStorage.getItem(FAV_KEY)||"[]");}
-function saveFavorites(list){localStorage.setItem(FAV_KEY,JSON.stringify(list));renderFavorites();}
-
-function toggleTheme(){
-  document.body.classList.toggle("light");
-}
+function getKey(){return localStorage.getItem(KEY_STORE);}
+function getFavs(){return JSON.parse(localStorage.getItem(FAV_STORE)||"[]");}
+function saveFavs(f){localStorage.setItem(FAV_STORE,JSON.stringify(f));renderFavs();}
+function toggleTheme(){document.body.classList.toggle("light");}
 
 function getSession(){
   const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
-  const d=new Date(now);
-  const t=d.getHours()*60+d.getMinutes();
+  const d=new Date(now);const t=d.getHours()*60+d.getMinutes();
   if(t>=240&&t<570) return "PRE-MARKET";
   if(t>=570&&t<=960) return "OPEN";
   if(t>960&&t<=1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function getStatus(vol,change){
-  if(vol>800000 && change>3) return "HOT";
-  if(vol>300000) return "WARM";
-  return "WATCH";
-}
-
-function renderFavorites(){
-  const favs=getFavorites();
-  const box=document.getElementById("favorites");
-  box.innerHTML="";
-  favs.forEach(sym=>{
-    const d=document.createElement("div");
-    d.className="card watch";
-    d.innerHTML=`⭐ ${sym} <a href="https://finviz.com/quote.ashx?t=${sym}" target="_blank">Chart</a>`;
-    box.appendChild(d);
+function renderFavs(){
+  const box=document.getElementById("favorites");box.innerHTML="";
+  getFavs().forEach(s=>{
+    box.innerHTML+=`<div class="card watch">⭐ ${s} <a href="https://finviz.com/quote.ashx?t=${s}" target="_blank">Chart</a></div>`;
   });
 }
 
-async function scan(){
-  const key=getKey();
-  if(!key) return alert("Save API key first");
+function toggleFav(sym){
+  let f=getFavs();
+  if(f.includes(sym)) f=f.filter(x=>x!==sym); else f.push(sym);
+  saveFavs(f);
+  scan();
+}
 
+function tradePlan(price){
+  const entry=price;
+  const stop=(price*0.95).toFixed(2);
+  const target=(price*1.10).toFixed(2);
+  const rr=((target-entry)/(entry-stop)).toFixed(2);
+  return {entry,stop,target,rr};
+}
+
+function getStatus(vol,chg){
+  if(vol>1000000 && chg>5) return "HOT";
+  if(vol>300000 && chg>2) return "WARM";
+  return "WATCH";
+}
+
+async function scan(){
+  const key=getKey(); if(!key) return alert("Save API key");
   const minVol=parseInt(document.getElementById("minVol").value)||0;
   const prOnly=document.getElementById("prOnly").checked;
   const gainersOnly=document.getElementById("gainersOnly").checked;
-  const session=getSession();
 
-  document.getElementById("session").innerText="Session: "+session+" | Auto-refresh 60s";
-  document.getElementById("status").innerText="Scanning Finnhub news...";
+  document.getElementById("session").innerText="Session: "+getSession()+" | Auto 60s";
+  document.getElementById("status").innerText="Scanning...";
   document.getElementById("results").innerHTML="";
   document.getElementById("leader").innerText="";
 
   const newsURL=`https://finnhub.io/api/v1/news?category=general&token=${key}`;
-
-  let leader=null;
-  let hotFound=false;
+  let leader=null; let hotAlerted=false;
 
   try{
-    const res=await fetch(newsURL);
-    const news=await res.json();
+    const news=await (await fetch(newsURL)).json();
 
     for(let item of news.slice(0,25)){
       if(prOnly && !item.headline.toLowerCase().includes("announce")) continue;
+      const sym=(item.related||"").split(",")[0];
+      if(!sym) continue;
 
-      const symbol=(item.related||"").split(",")[0];
-      if(!symbol) continue;
+      const q=await (await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`)).json();
 
-      const qRes=await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`);
-      const q=await qRes.json();
+      const to=Math.floor(Date.now()/1000);
+      const from=to-3600;
+      const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=1&from=${from}&to=${to}&token=${key}`)).json();
 
-      const vol=Math.floor(Math.random()*900000+100000);
+      let vol=0;
+      if(candle.s==="ok" && candle.v.length>1){
+        const v1=candle.v[candle.v.length-1];
+        const v2=candle.v[candle.v.length-2];
+        vol=v1;
+        var spike=v1>v2*2;
+      } else continue;
+
       if(vol<minVol) continue;
 
       const pct=((q.c-q.pc)/q.pc*100)||0;
-
       if(gainersOnly && pct<2) continue;
 
       const status=getStatus(vol,pct);
-
-      if(!leader||vol>leader.vol) leader={symbol,vol};
-
-      if(status==="HOT" && !hotFound){
+      if(status==="HOT" && !hotAlerted){
         document.getElementById("alertSound").play();
-        hotFound=true;
+        alert("HOT STOCK FOUND: "+sym);
+        hotAlerted=true;
       }
 
-      const favs=getFavorites();
-      const star=favs.includes(symbol)?"⭐":"☆";
+      if(!leader||vol>leader.vol) leader={symbol:sym,vol};
+
+      const plan=tradePlan(q.c);
+      const favs=getFavs();
+      const star=favs.includes(sym)?"⭐":"☆";
 
       const card=document.createElement("div");
       card.className="card "+(status==="HOT"?"hot":status==="WARM"?"warm":"watch");
       card.innerHTML=`
-        <span class="star" onclick="toggleFav('${symbol}')">${star}</span>
-        <h3>${symbol} $${q.c?.toFixed(2)||"?"}</h3>
+        <span class="star" onclick="toggleFav('${sym}')">${star}</span>
+        <h3>${sym} $${q.c.toFixed(2)}</h3>
         <p>${item.headline}</p>
         <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | ${status}</p>
-        <a href="https://finviz.com/quote.ashx?t=${symbol}" target="_blank">Chart</a>
+        <p>🎯 Entry: ${plan.entry.toFixed(2)} | Stop: ${plan.stop} | Target: ${plan.target} | R:R ${plan.rr}</p>
+        <a href="https://finviz.com/quote.ashx?t=${sym}" target="_blank">Chart</a>
       `;
       document.getElementById("results").appendChild(card);
     }
@@ -195,7 +175,7 @@ async function scan(){
     document.getElementById("status").innerText="Scan complete";
     if(leader) document.getElementById("leader").innerText="🔥 Leader: "+leader.symbol;
 
-  }catch(err){
+  }catch(e){
     document.getElementById("status").innerText="API error";
   }
 
@@ -203,17 +183,9 @@ async function scan(){
   autoTimer=setInterval(scan,60000);
 }
 
-function toggleFav(symbol){
-  let favs=getFavorites();
-  if(favs.includes(symbol)) favs=favs.filter(s=>s!==symbol);
-  else favs.push(symbol);
-  saveFavorites(favs);
-  scan();
-}
-
 document.getElementById("apiKey").value=getKey()||"";
 document.getElementById("session").innerText="Session: "+getSession();
-renderFavorites();
+renderFavs();
 </script>
 
 </body>
