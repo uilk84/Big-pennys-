@@ -1,187 +1,136 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Penny Scanner v11</title>
+<meta charset="UTF-8">
+<title>Penny Scanner v12 PRO</title>
 <style>
-body{margin:0;font-family:system-ui;background:#07111b;color:#e6eef8}
-.wrap{max-width:900px;margin:auto;padding:16px}
-h1{text-align:center}
-button,input{padding:10px;border-radius:10px;border:none}
-button{background:#2f80ed;color:white;font-weight:700;margin:5px}
-input{background:#0d1722;color:white;width:260px}
-.card{background:#0d1722;border-left:6px solid;border-radius:12px;padding:14px;margin:12px 0}
-.hot{border-color:#22c55e}
-.warm{border-color:#facc15}
-.watch{border-color:#60a5fa}
-.sym{font-weight:800;font-size:18px;color:#7ee3ff}
-.meta{color:#9fb4d6;font-size:13px}
-a{color:#8ec7ff}
-.status{text-align:center;margin:8px;color:#7dd3fc}
-.notice{text-align:center;color:#ffd780}
-.controls{text-align:center;margin:10px}
+body {
+  background:#0b1220;
+  color:#fff;
+  font-family:Arial;
+  text-align:center;
+}
+button,input {
+  padding:10px;
+  border-radius:8px;
+  border:none;
+  font-size:16px;
+}
+.card {
+  background:#111a2e;
+  margin:15px;
+  padding:15px;
+  border-radius:12px;
+  text-align:left;
+}
+.hot {border-left:6px solid #00ff88;}
+.warm {border-left:6px solid orange;}
+.watch {border-left:6px solid #00aaff;}
 </style>
 </head>
 <body>
-<div class="wrap">
-<h1>📈 Penny Scanner v11</h1>
 
-<div class="controls">
-<input id="apiKey" placeholder="d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0"/>
+<h2>📈 Penny Scanner v12 PRO</h2>
+
+<input id="apikey" placeholder="Enter Finnhub API Key"/>
 <button onclick="saveKey()">Save Key</button>
-</div>
+<br><br>
 
-<div class="controls">
+<input id="minvol" type="number" value="100000" />
 <button onclick="scan()">Scan Now</button>
-<label><input type="checkbox" id="forceLive"> Force Live</label>
-<label><input type="checkbox" id="prOnly"> PR Only</label>
-<label><input type="checkbox" id="soundOn" checked> Sound</label>
-</div>
 
-<div class="controls">
-<button onclick="toggleAuto()">Auto Scan</button>
-</div>
+<p id="session"></p>
+<p id="status"></p>
 
-<div id="status" class="status"></div>
-<div id="notice" class="notice"></div>
 <div id="results"></div>
 
-<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+<audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
 <script>
-const STORAGE="finnhub_key_v11";
-let autoTimer=null;
-
-document.getElementById("apiKey").value=localStorage.getItem(STORAGE)||"";
+let API_KEY = localStorage.getItem("finnhubKey") || "";
+document.getElementById("apikey").value = API_KEY;
 
 function saveKey(){
-  localStorage.setItem(STORAGE,apiKey.value.trim());
-  alert("API key saved");
+  API_KEY=document.getElementById("apikey").value;
+  localStorage.setItem("finnhubKey",API_KEY);
+  alert("Key saved!");
 }
 
 function getSession(){
-  const et=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const now=new Date();
+  const et=new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t=et.getHours()*60+et.getMinutes();
   if(t>=240 && t<570) return "PRE-MARKET";
-  if(t>=570 && t<=960) return "MARKET";
-  if(t>960 && t<=1200) return "AFTER-HOURS";
+  if(t>=570 && t<960) return "OPEN";
+  if(t>=960 && t<1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function toggleAuto(){
-  if(autoTimer){
-    clearInterval(autoTimer);
-    autoTimer=null;
-    alert("Auto scan OFF");
-  } else {
-    scan();
-    autoTimer=setInterval(scan,60000);
-    alert("Auto scan ON");
-  }
-}
-
-function score(vol){
-  if(vol>1000000) return "HOT";
-  if(vol>300000) return "WARM";
-  return "WATCH";
-}
-
 async function scan(){
-  const results=document.getElementById("results");
-  const status=document.getElementById("status");
-  const notice=document.getElementById("notice");
-  results.innerHTML="";
-  notice.innerText="";
-
+  const minVol=parseInt(document.getElementById("minvol").value);
   const session=getSession();
-  status.innerText=`Session: ${session} | Finnhub Live`;
+  document.getElementById("session").innerText=`Session: ${session}`;
+  document.getElementById("status").innerText="Scanning...";
+  document.getElementById("results").innerHTML="";
 
-  if(session==="CLOSED" && !forceLive.checked){
-    notice.innerText="Market closed";
+  if(!API_KEY){
+    alert("Enter API key");
     return;
   }
 
-  const key=localStorage.getItem(STORAGE);
-  if(!key){notice.innerText="No API key";return;}
-
   try{
-    const newsRes=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
-    if(!newsRes.ok) throw "Finnhub failed";
+    const newsRes=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`);
     const news=await newsRes.json();
 
-    const tickers=new Set();
-    news.forEach(n=>{
-      if(prOnly.checked && !n.headline.toLowerCase().includes("press")) return;
-      if(n.related){
-        n.related.split(",").forEach(t=>{
-          if(t && t.length<=5) tickers.add(t.trim());
-        });
-      }
-    });
+    let stocks=[];
 
-    let count=0;
-    for(const sym of tickers){
-      if(count>=12) break;
+    for(let item of news.slice(0,20)){
+      const sym=item.related?.split(",")[0];
+      if(!sym) continue;
 
-      const from=new Date(Date.now()-86400000).toISOString().split("T")[0];
-      const to=new Date().toISOString().split("T")[0];
+      const q=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
+      const data=await q.json();
 
-      const newsR=await fetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${from}&to=${to}&token=${key}`);
-      if(!newsR.ok) continue;
-      const items=await newsR.json();
-      if(!items.length) continue;
+      if(!data.c || data.c>5 || data.v<minVol) continue;
 
-      const quoteR=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
-      const quote=await quoteR.json();
+      let status="WATCH";
+      if(data.v>minVol*3) status="HOT";
+      else if(data.v>minVol*1.5) status="WARM";
 
-      const vol=quote.v||0;
-      const price=quote.c||"N/A";
-      const s=score(vol);
+      stocks.push({sym,price:data.c,vol:data.v,headline:item.headline,status});
+    }
 
-      const card=document.createElement("div");
-      card.className=`card ${s.toLowerCase()}`;
-      card.innerHTML=`
-        <div class="sym">${sym} $${price}</div>
-        <div>${items[0].headline}</div>
-        <div class="meta">Vol: ${vol.toLocaleString()} | Status: ${s}</div>
-        <a href="${items[0].url}" target="_blank">Open source</a>
+    stocks.sort((a,b)=>b.vol-a.vol);
+
+    if(stocks.length===0){
+      document.getElementById("status").innerText="No penny stocks found";
+      return;
+    }
+
+    document.getElementById("alertSound").play();
+    document.getElementById("status").innerText=`${stocks.length} stocks found`;
+
+    stocks.forEach(s=>{
+      const div=document.createElement("div");
+      div.className=`card ${s.status.toLowerCase()}`;
+      div.innerHTML=`
+        <b>${s.sym} $${s.price}</b><br>
+        Vol: ${s.vol}<br>
+        ${s.headline}<br>
+        Status: ${s.status}<br>
+        <a target="_blank" href="https://finance.yahoo.com/quote/${s.sym}">📊 Chart</a>
       `;
-      results.appendChild(card);
-      if(soundOn.checked && s==="HOT") beep.play();
-      count++;
-    }
-
-    if(count===0){
-      notice.innerText="No ticker news found";
-    }
+      document.getElementById("results").appendChild(div);
+    });
 
   }catch(err){
-    notice.innerText="Finnhub error — trying Yahoo fallback";
-    yahooFallback();
+    document.getElementById("status").innerText="API error";
+    console.log(err);
   }
 }
 
-async function yahooFallback(){
-  try{
-    const r=await fetch("https://query1.finance.yahoo.com/v1/finance/trending/US");
-    const j=await r.json();
-    const list=j.finance.result[0].quotes.slice(0,10);
-    list.forEach(t=>{
-      const card=document.createElement("div");
-      card.className="card watch";
-      card.innerHTML=`
-        <div class="sym">${t.symbol}</div>
-        <div>${t.shortName||"Yahoo trending"}</div>
-        <div class="meta">Status: WATCH</div>
-      `;
-      results.appendChild(card);
-    });
-  } catch(e){
-    notice.innerText="All feeds failed";
-  }
-}
+setInterval(scan,60000);
 </script>
-</div>
+
 </body>
 </html>
