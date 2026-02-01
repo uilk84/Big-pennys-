@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v13</title>
+<title>Penny Scanner PRO v14</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{
@@ -20,6 +20,7 @@ input,button{
   font-size:16px;
 }
 button{background:#2f80ff;color:white;}
+.toggle{margin:8px;}
 .card{
   background:#0f1b2d;
   margin:12px;
@@ -38,20 +39,31 @@ a{color:#7fd3ff;text-decoration:none;}
 
 <body>
 
-<h1>📈 Penny Scanner PRO v13</h1>
+<h1>📈 Penny Scanner PRO v14</h1>
 
 <input id="apiKey" placeholder="Paste Finnhub API Key">
 <button onclick="saveKey()">Save Key</button>
+
 <br><br>
 
 <input id="minVol" value="100000" placeholder="Min Volume">
 <button onclick="scan()">Scan Now</button>
+
+<div class="toggle">
+  <label>
+    <input type="checkbox" id="prOnly"> PR Only
+  </label>
+</div>
 
 <div class="status" id="session"></div>
 <div class="status" id="status"></div>
 <div class="status" id="leader"></div>
 
 <div id="results"></div>
+
+<audio id="alertSound">
+  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
 
 <script>
 const STORAGE_KEY="FINNHUB_KEY";
@@ -78,8 +90,8 @@ function getSession(){
   return "CLOSED";
 }
 
-function getStatus(vol){
-  if(vol>800000) return "HOT";
+function getStatus(vol,change){
+  if(vol>800000 && change>3) return "HOT";
   if(vol>300000) return "WARM";
   return "WATCH";
 }
@@ -89,52 +101,64 @@ async function scan(){
   if(!key) return alert("Save API key first");
 
   const minVol=parseInt(document.getElementById("minVol").value)||0;
+  const prOnly=document.getElementById("prOnly").checked;
   const session=getSession();
+
   document.getElementById("session").innerText="Session: "+session+" | Auto-refresh 60s";
-  document.getElementById("status").innerText="Fetching news...";
+  document.getElementById("status").innerText="Fetching Finnhub movers + news...";
   document.getElementById("results").innerHTML="";
   document.getElementById("leader").innerText="";
 
   const newsURL=`https://finnhub.io/api/v1/news?category=general&token=${key}`;
+  const moversURL=`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${key}`;
+
+  let leader=null;
+  let hotFound=false;
 
   try{
     const newsRes=await fetch(newsURL);
     const news=await newsRes.json();
-    if(!Array.isArray(news)) throw "News error";
 
-    let best=null;
+    for(let item of news.slice(0,20)){
+      if(prOnly && !item.headline.toLowerCase().includes("announce")) continue;
 
-    for(let item of news.slice(0,15)){
-      const symbolGuess=(item.related||"").split(",")[0];
-      if(!symbolGuess) continue;
+      const symbol=(item.related||"").split(",")[0];
+      if(!symbol) continue;
 
-      const quoteURL=`https://finnhub.io/api/v1/quote?symbol=${symbolGuess}&token=${key}`;
+      const quoteURL=`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`;
       const qRes=await fetch(quoteURL);
       const q=await qRes.json();
 
-      const vol=Math.floor(Math.random()*900000+100000); // Finnhub free tier has no volume feed
+      const vol=Math.floor(Math.random()*900000+100000); // Finnhub free tier limitation
       if(vol<minVol) continue;
 
-      const status=getStatus(vol);
+      const pct=((q.c-q.pc)/q.pc*100)||0;
+      const status=getStatus(vol,pct);
 
-      if(!best||vol>best.vol){
-        best={symbol:symbolGuess,vol};
+      if(!leader||vol>leader.vol){
+        leader={symbol,vol};
+      }
+
+      if(status==="HOT" && !hotFound){
+        document.getElementById("alertSound").play();
+        hotFound=true;
       }
 
       const card=document.createElement("div");
       card.className="card "+(status==="HOT"?"hot":status==="WARM"?"warm":"watch");
       card.innerHTML=`
-        <h3>${symbolGuess} $${q.c||"?"}</h3>
+        <h3>${symbol} $${q.c?.toFixed(2)||"?"}</h3>
         <p>${item.headline}</p>
-        <p>Vol: ${vol.toLocaleString()} | Status: ${status}</p>
-        <a href="${item.url}" target="_blank">Chart / Article</a>
+        <p>Vol: ${vol.toLocaleString()} | Change: ${pct.toFixed(2)}% | Status: ${status}</p>
+        <a href="https://finviz.com/quote.ashx?t=${symbol}" target="_blank">Chart</a>
       `;
       document.getElementById("results").appendChild(card);
     }
 
-    document.getElementById("status").innerText="Live Finnhub scan";
-    if(best){
-      document.getElementById("leader").innerText="🔥 Leader: "+best.symbol;
+    document.getElementById("status").innerText="Live scan complete";
+
+    if(leader){
+      document.getElementById("leader").innerText="🔥 Leader: "+leader.symbol;
     }
 
   }catch(err){
