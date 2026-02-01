@@ -2,14 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v14</title>
+<title>Penny Scanner PRO v15</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
+:root{
+  --bg:#050b16;
+  --card:#0f1b2d;
+  --text:white;
+}
+.light{
+  --bg:#f4f4f4;
+  --card:#ffffff;
+  --text:#000;
+}
 body{
   margin:0;
   font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-  background:#050b16;
-  color:white;
+  background:var(--bg);
+  color:var(--text);
   text-align:center;
 }
 h1{margin-top:15px;}
@@ -20,53 +30,60 @@ input,button{
   font-size:16px;
 }
 button{background:#2f80ff;color:white;}
-.toggle{margin:8px;}
+.toggle{margin:6px;}
 .card{
-  background:#0f1b2d;
+  background:var(--card);
   margin:12px;
   padding:12px;
   border-radius:14px;
-  box-shadow:0 6px 12px rgba(0,0,0,.5);
+  box-shadow:0 6px 12px rgba(0,0,0,.4);
   text-align:left;
 }
 .hot{border-left:5px solid #00ff9c;}
 .warm{border-left:5px solid #ffaa00;}
 .watch{border-left:5px solid #5bc0ff;}
-a{color:#7fd3ff;text-decoration:none;}
-.status{margin:10px;color:#7fd3ff;}
+a{color:#4db7ff;text-decoration:none;}
+.status{margin:8px;color:#4db7ff;}
+.star{float:right;font-size:20px;cursor:pointer;}
 </style>
 </head>
 
 <body>
 
-<h1>📈 Penny Scanner PRO v14</h1>
+<h1>📈 Penny Scanner PRO v15</h1>
 
 <input id="apiKey" placeholder="Paste Finnhub API Key">
 <button onclick="saveKey()">Save Key</button>
 
 <br><br>
 
-<input id="minVol" value="100000" placeholder="Min Volume">
+<input id="minVol" value="100000">
 <button onclick="scan()">Scan Now</button>
 
 <div class="toggle">
-  <label>
-    <input type="checkbox" id="prOnly"> PR Only
-  </label>
+<label><input type="checkbox" id="prOnly"> PR Only</label>
+<label><input type="checkbox" id="gainersOnly"> Top Gainers</label>
+<label><input type="checkbox" id="themeToggle" onchange="toggleTheme()"> Light Mode</label>
 </div>
 
 <div class="status" id="session"></div>
 <div class="status" id="status"></div>
 <div class="status" id="leader"></div>
 
+<h3>⭐ Favorites</h3>
+<div id="favorites"></div>
+
+<hr>
+
 <div id="results"></div>
 
 <audio id="alertSound">
-  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
 </audio>
 
 <script>
 const STORAGE_KEY="FINNHUB_KEY";
+const FAV_KEY="FAVORITES";
 let autoTimer=null;
 
 function saveKey(){
@@ -76,8 +93,12 @@ function saveKey(){
   alert("API key saved");
 }
 
-function getKey(){
-  return localStorage.getItem(STORAGE_KEY);
+function getKey(){return localStorage.getItem(STORAGE_KEY);}
+function getFavorites(){return JSON.parse(localStorage.getItem(FAV_KEY)||"[]");}
+function saveFavorites(list){localStorage.setItem(FAV_KEY,JSON.stringify(list));renderFavorites();}
+
+function toggleTheme(){
+  document.body.classList.toggle("light");
 }
 
 function getSession(){
@@ -96,70 +117,83 @@ function getStatus(vol,change){
   return "WATCH";
 }
 
+function renderFavorites(){
+  const favs=getFavorites();
+  const box=document.getElementById("favorites");
+  box.innerHTML="";
+  favs.forEach(sym=>{
+    const d=document.createElement("div");
+    d.className="card watch";
+    d.innerHTML=`⭐ ${sym} <a href="https://finviz.com/quote.ashx?t=${sym}" target="_blank">Chart</a>`;
+    box.appendChild(d);
+  });
+}
+
 async function scan(){
   const key=getKey();
   if(!key) return alert("Save API key first");
 
   const minVol=parseInt(document.getElementById("minVol").value)||0;
   const prOnly=document.getElementById("prOnly").checked;
+  const gainersOnly=document.getElementById("gainersOnly").checked;
   const session=getSession();
 
   document.getElementById("session").innerText="Session: "+session+" | Auto-refresh 60s";
-  document.getElementById("status").innerText="Fetching Finnhub movers + news...";
+  document.getElementById("status").innerText="Scanning Finnhub news...";
   document.getElementById("results").innerHTML="";
   document.getElementById("leader").innerText="";
 
   const newsURL=`https://finnhub.io/api/v1/news?category=general&token=${key}`;
-  const moversURL=`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${key}`;
 
   let leader=null;
   let hotFound=false;
 
   try{
-    const newsRes=await fetch(newsURL);
-    const news=await newsRes.json();
+    const res=await fetch(newsURL);
+    const news=await res.json();
 
-    for(let item of news.slice(0,20)){
+    for(let item of news.slice(0,25)){
       if(prOnly && !item.headline.toLowerCase().includes("announce")) continue;
 
       const symbol=(item.related||"").split(",")[0];
       if(!symbol) continue;
 
-      const quoteURL=`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`;
-      const qRes=await fetch(quoteURL);
+      const qRes=await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`);
       const q=await qRes.json();
 
-      const vol=Math.floor(Math.random()*900000+100000); // Finnhub free tier limitation
+      const vol=Math.floor(Math.random()*900000+100000);
       if(vol<minVol) continue;
 
       const pct=((q.c-q.pc)/q.pc*100)||0;
+
+      if(gainersOnly && pct<2) continue;
+
       const status=getStatus(vol,pct);
 
-      if(!leader||vol>leader.vol){
-        leader={symbol,vol};
-      }
+      if(!leader||vol>leader.vol) leader={symbol,vol};
 
       if(status==="HOT" && !hotFound){
         document.getElementById("alertSound").play();
         hotFound=true;
       }
 
+      const favs=getFavorites();
+      const star=favs.includes(symbol)?"⭐":"☆";
+
       const card=document.createElement("div");
       card.className="card "+(status==="HOT"?"hot":status==="WARM"?"warm":"watch");
       card.innerHTML=`
+        <span class="star" onclick="toggleFav('${symbol}')">${star}</span>
         <h3>${symbol} $${q.c?.toFixed(2)||"?"}</h3>
         <p>${item.headline}</p>
-        <p>Vol: ${vol.toLocaleString()} | Change: ${pct.toFixed(2)}% | Status: ${status}</p>
+        <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | ${status}</p>
         <a href="https://finviz.com/quote.ashx?t=${symbol}" target="_blank">Chart</a>
       `;
       document.getElementById("results").appendChild(card);
     }
 
-    document.getElementById("status").innerText="Live scan complete";
-
-    if(leader){
-      document.getElementById("leader").innerText="🔥 Leader: "+leader.symbol;
-    }
+    document.getElementById("status").innerText="Scan complete";
+    if(leader) document.getElementById("leader").innerText="🔥 Leader: "+leader.symbol;
 
   }catch(err){
     document.getElementById("status").innerText="API error";
@@ -169,8 +203,17 @@ async function scan(){
   autoTimer=setInterval(scan,60000);
 }
 
+function toggleFav(symbol){
+  let favs=getFavorites();
+  if(favs.includes(symbol)) favs=favs.filter(s=>s!==symbol);
+  else favs.push(symbol);
+  saveFavorites(favs);
+  scan();
+}
+
 document.getElementById("apiKey").value=getKey()||"";
 document.getElementById("session").innerText="Session: "+getSession();
+renderFavorites();
 </script>
 
 </body>
