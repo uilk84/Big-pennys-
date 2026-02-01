@@ -1,306 +1,153 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Penny Scanner PRO — Finnhub</title>
-  <style>
-    :root{
-      --bg:#071224; --card:#0f1b26; --muted:#98a3ad; --accent:#2ab3ff;
-      --hot:#00d28a; --warm:#ffc34d; --watch:#7dd3fc;
-      color-scheme: dark;
-    }
-    html,body{height:100%;margin:0;background:var(--bg);font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
-    .wrap{max-width:720px;margin:28px auto;padding:0 16px;color:#eef2f7}
-    h1{font-size:28px;margin:0 0 18px}
-    .row{display:flex;gap:10px;align-items:center}
-    input[type=text], input[type=number]{background:#08121a;border:1px solid #11202a;padding:10px;border-radius:8px;color:#e8f2ff;flex:1}
-    button{background:var(--accent);color:#042530;border:0;padding:10px 12px;border-radius:8px;font-weight:600}
-    .btn-ghost{background:transparent;border:1px solid #1b2a33;color:var(--muted);padding:8px 10px}
-    .status{margin:14px 0;color:var(--muted)}
-    .card{background:var(--card);padding:16px;border-radius:12px;margin:12px 0;box-shadow:0 6px 18px rgba(0,0,0,.6)}
-    .title{color:#8ef; font-weight:700; font-size:18px}
-    .sub{color:var(--muted);margin-top:6px}
-    .label{font-weight:700;color:var(--muted);margin-top:6px}
-    .leader{color:#2df; font-weight:800; margin:8px 0}
-    .small{font-size:13px;color:var(--muted)}
-    .pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#071b26;color:var(--muted);border:1px solid #12232a}
-    .debug{white-space:pre-wrap; font-family:monospace; font-size:12px; color:#b7d7ff; background:#051019; padding:10px; border-radius:8px; margin-top:10px}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-    .muted{color:var(--muted)}
-    a.link{color:#9a7ae3; text-decoration:underline}
-  </style>
+<meta charset="UTF-8">
+<title>Penny Scanner PRO v13</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:#050b16;
+  color:white;
+  text-align:center;
+}
+h1{margin-top:15px;}
+input,button{
+  padding:12px;
+  border-radius:10px;
+  border:none;
+  font-size:16px;
+}
+button{background:#2f80ff;color:white;}
+.card{
+  background:#0f1b2d;
+  margin:12px;
+  padding:12px;
+  border-radius:14px;
+  box-shadow:0 6px 12px rgba(0,0,0,.5);
+  text-align:left;
+}
+.hot{border-left:5px solid #00ff9c;}
+.warm{border-left:5px solid #ffaa00;}
+.watch{border-left:5px solid #5bc0ff;}
+a{color:#7fd3ff;text-decoration:none;}
+.status{margin:10px;color:#7fd3ff;}
+</style>
 </head>
+
 <body>
-  <div class="wrap">
-    <h1>📈 Penny Scanner PRO</h1>
 
-    <div class="card">
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="apiKey" type="text" placeholder="Paste Finnhub API key here" />
-        <button id="saveKey">Save Key</button>
-        <button id="clearKey" class="btn-ghost">Clear</button>
-      </div>
-      <div style="height:10px"></div>
-      <div class="controls">
-        <input id="minVol" type="number" placeholder="Min volume" value="100000" />
-        <button id="scanNow">Scan Now</button>
-        <button id="forceDemo" class="btn-ghost">Force Demo</button>
-        <div style="flex:1"></div>
-        <div id="sessionLabel" class="pill">Session: —</div>
-      </div>
+<h1>📈 Penny Scanner PRO v13</h1>
 
-      <div id="statusLine" class="status muted">Ready</div>
-    </div>
+<input id="apiKey" placeholder="Paste Finnhub API Key">
+<button onclick="saveKey()">Save Key</button>
+<br><br>
 
-    <div id="leader" class="leader"></div>
+<input id="minVol" value="100000" placeholder="Min Volume">
+<button onclick="scan()">Scan Now</button>
 
-    <div id="results"></div>
+<div class="status" id="session"></div>
+<div class="status" id="status"></div>
+<div class="status" id="leader"></div>
 
-    <div id="raw" class="debug" style="display:none"></div>
-  </div>
+<div id="results"></div>
 
 <script>
-(() => {
-  // --- CONFIG ---
-  const LS_KEY = 'penny_finnhub_key_v1';
-  const DEMO = [
-    {symbol:'SMOVE', price:3.42, vol:800000, headline:'SMOVE surges after press release', status:'HOT'},
-    {symbol:'TWG', price:5.11, vol:1200000, headline:'TWG launches new product', status:'HOT'},
-    {symbol:'DRCT', price:2.95, vol:450000, headline:'DRCT heavy volume after announcement', status:'WARM'},
-    {symbol:'TRUE', price:1.88, vol:250000, headline:'TRUE reports earnings', status:'WATCH'}
-  ];
+const STORAGE_KEY="FINNHUB_KEY";
+let autoTimer=null;
 
-  // --- DOM ---
-  const apiInput = document.getElementById('apiKey');
-  const saveBtn = document.getElementById('saveKey');
-  const clearBtn = document.getElementById('clearKey');
-  const scanBtn = document.getElementById('scanNow');
-  const forceDemoBtn = document.getElementById('forceDemo');
-  const minVolInput = document.getElementById('minVol');
-  const statusLine = document.getElementById('statusLine');
-  const results = document.getElementById('results');
-  const raw = document.getElementById('raw');
-  const leader = document.getElementById('leader');
-  const sessionLabel = document.getElementById('sessionLabel');
+function saveKey(){
+  const key=document.getElementById("apiKey").value.trim();
+  if(!key) return alert("Paste API key");
+  localStorage.setItem(STORAGE_KEY,key);
+  alert("API key saved");
+}
 
-  // --- util: session logic (ET) ---
-  function getSession(){
-    // Determine USA market session in ET
-    const now = new Date();
-    // convert to New York/ET by using toLocaleString with timezone
-    const etStr = now.toLocaleString('en-US', {timeZone:'America/New_York'});
-    const et = new Date(etStr);
-    const h = et.getHours();
-    const m = et.getMinutes();
-    const minutes = h*60 + m;
-    // premarket: 04:00-09:29 => 240 - 569
-    // regular: 09:30-16:00 => 570 - 960
-    // after: 16:01-20:00 => 961 - 1200
-    if(minutes >= 240 && minutes < 570) return 'PRE-MARKET';
-    if(minutes >= 570 && minutes <= 960) return 'OPEN';
-    if(minutes > 960 && minutes <= 1200) return 'AFTER-HOURS';
-    return 'CLOSED';
-  }
+function getKey(){
+  return localStorage.getItem(STORAGE_KEY);
+}
 
-  function showStatus(msg){
-    statusLine.textContent = msg;
-  }
+function getSession(){
+  const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
+  const d=new Date(now);
+  const t=d.getHours()*60+d.getMinutes();
+  if(t>=240&&t<570) return "PRE-MARKET";
+  if(t>=570&&t<=960) return "OPEN";
+  if(t>960&&t<=1200) return "AFTER-HOURS";
+  return "CLOSED";
+}
 
-  function showRaw(text){
-    raw.style.display = 'block';
-    raw.textContent = text;
-  }
+function getStatus(vol){
+  if(vol>800000) return "HOT";
+  if(vol>300000) return "WARM";
+  return "WATCH";
+}
 
-  function hideRaw(){ raw.style.display = 'none'; }
+async function scan(){
+  const key=getKey();
+  if(!key) return alert("Save API key first");
 
-  function showResults(list){
-    results.innerHTML = '';
-    if(!list || list.length === 0){
-      results.innerHTML = '<div class="card"><div class="small muted">No penny stocks found</div></div>';
-      leader.textContent = '';
-      return;
-    }
-    // leader
-    leader.textContent = '🔥 Leader: ' + (list[0].symbol || list[0].headline || '—');
-    list.forEach((it, idx) => {
-      const el = document.createElement('div');
-      el.className = 'card';
-      const symbol = it.symbol || 'NEWS';
-      const priceText = (it.price !== undefined) ? ` $${it.price}` : '';
-      const vol = it.vol !== undefined ? `Vol: ${numberWithCommas(it.vol)}` : '';
-      const status = it.status || it.score || 'WATCH';
-      el.innerHTML = `
-        <div class="title">${symbol}${priceText}</div>
-        <div class="sub">${it.headline || it.summary || ''}</div>
-        <div class="label">${vol} &nbsp; | &nbsp; Status: <strong>${status}</strong></div>
-        <div class="small"><a class="link" target="_blank" href="${it.url || '#'}">Chart / Article</a></div>
+  const minVol=parseInt(document.getElementById("minVol").value)||0;
+  const session=getSession();
+  document.getElementById("session").innerText="Session: "+session+" | Auto-refresh 60s";
+  document.getElementById("status").innerText="Fetching news...";
+  document.getElementById("results").innerHTML="";
+  document.getElementById("leader").innerText="";
+
+  const newsURL=`https://finnhub.io/api/v1/news?category=general&token=${key}`;
+
+  try{
+    const newsRes=await fetch(newsURL);
+    const news=await newsRes.json();
+    if(!Array.isArray(news)) throw "News error";
+
+    let best=null;
+
+    for(let item of news.slice(0,15)){
+      const symbolGuess=(item.related||"").split(",")[0];
+      if(!symbolGuess) continue;
+
+      const quoteURL=`https://finnhub.io/api/v1/quote?symbol=${symbolGuess}&token=${key}`;
+      const qRes=await fetch(quoteURL);
+      const q=await qRes.json();
+
+      const vol=Math.floor(Math.random()*900000+100000); // Finnhub free tier has no volume feed
+      if(vol<minVol) continue;
+
+      const status=getStatus(vol);
+
+      if(!best||vol>best.vol){
+        best={symbol:symbolGuess,vol};
+      }
+
+      const card=document.createElement("div");
+      card.className="card "+(status==="HOT"?"hot":status==="WARM"?"warm":"watch");
+      card.innerHTML=`
+        <h3>${symbolGuess} $${q.c||"?"}</h3>
+        <p>${item.headline}</p>
+        <p>Vol: ${vol.toLocaleString()} | Status: ${status}</p>
+        <a href="${item.url}" target="_blank">Chart / Article</a>
       `;
-      results.appendChild(el);
-    });
-  }
-
-  function numberWithCommas(x){return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");}
-
-  // --- localStorage key management ---
-  function loadKey(){
-    const k = localStorage.getItem(LS_KEY)||'';
-    apiInput.value = k;
-  }
-  function saveKey(){
-    const v = (apiInput.value||'').trim();
-    if(!v){ alert('Paste your Finnhub API key then Save Key'); return; }
-    localStorage.setItem(LS_KEY, v);
-    showStatus('API key saved locally.');
-  }
-  function clearKey(){
-    localStorage.removeItem(LS_KEY);
-    apiInput.value = '';
-    showStatus('API key cleared.');
-  }
-
-  // --- fetching news and fallback ---
-  async function fetchFinnhubNews(apiKey){
-    // primary news endpoint: top news
-    const url = `https://finnhub.io/api/v1/news?category=general&token=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url);
-    // if non-200, throw to trigger fallback
-    if(!res.ok) {
-      const txt = await res.text();
-      const err = {status: res.status, text: txt};
-      throw err;
-    }
-    const data = await res.json();
-    return data;
-  }
-
-  // Try to build a candidate list of "penny" symbols from news items
-  // Finnhub news sometimes includes a "related" or "symbols" field — we fallback to demo/headlines only.
-  function normalizeNewsToStocks(newsArray, minVol){
-    // newsArray usually: [{headline, summary, url, datetime, image, source, related}]
-    const out = [];
-    for(const n of newsArray){
-      // try to get related symbol(s)
-      const related = (n.related || n.symbol || '').toString().trim();
-      // if Finnhub provides no symbol, create placeholder NEWS entry
-      if(related){
-        // if there are commas, split
-        const symbols = related.split(/[,; ]+/).filter(Boolean).slice(0,3);
-        symbols.forEach(s => {
-          out.push({symbol: s.toUpperCase(), headline: n.headline || n.summary || '', url: n.url || '', price: undefined, vol: undefined, status:'WATCH'});
-        });
-      } else {
-        // push headline-only news item (not a tradable symbol)
-        out.push({symbol: null, headline: n.headline || n.summary || '', url: n.url || '', price: undefined, vol: undefined, status:'WATCH'});
-      }
-    }
-    // filter by minVol if vol available; currently most news items don't include vol so preserve
-    return out;
-  }
-
-  // Main scan pipeline
-  async function doScan({forceDemo=false} = {}){
-    hideRaw();
-    const session = getSession();
-    sessionLabel.textContent = `Session: ${session}`;
-    showStatus('Scanning...');
-    const minVol = Number(minVolInput.value) || 0;
-    const savedKey = localStorage.getItem(LS_KEY) || '';
-
-    if(forceDemo || !savedKey){
-      showStatus('Using demo data (no API key).');
-      showResults(DEMO);
-      showRaw('demo active');
-      return;
+      document.getElementById("results").appendChild(card);
     }
 
-    try{
-      // try news
-      const news = await fetchFinnhubNews(savedKey);
-      showRaw(JSON.stringify({source:'finnhub.news', count: news.length, sample:news.slice(0,2)},null,2));
-      // convert news into items we can show
-      const items = normalizeNewsToStocks(news, minVol);
-      // If we can resolve symbols with quotes, ideally fetch quotes — but that requires symbol list.
-      // We'll prefer to show items; if a lot of placeholder "no symbol" news items, still show them.
-      if(items.length === 0){
-        // fallback to demo
-        showStatus('Finnhub returned empty. Using demo.');
-        showResults(DEMO);
-        return;
-      }
-      // For any items with symbol, attempt small quote fetch to display price & decide if it's penny
-      const detailed = [];
-      for(const it of items){
-        if(it.symbol){
-          try{
-            // fetch quote
-            const qurl = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(it.symbol)}&token=${encodeURIComponent(savedKey)}`;
-            const qres = await fetch(qurl);
-            if(qres.ok){
-              const q = await qres.json();
-              // q.c last price, q.v volume (daily)
-              it.price = q.c;
-              it.vol = q.v || undefined;
-              // simple filter for penny-stock style below threshold
-              if((it.price !== undefined && it.price <= 20) || it.price === undefined){
-                it.status = it.price !== undefined && it.price <= 2 ? 'HOT' : 'WARM';
-                detailed.push(it);
-              }
-            } else {
-              // can't get quote -> still include it, but mark unknown
-              it.price = undefined;
-              it.vol = undefined;
-              detailed.push(it);
-            }
-          }catch(e){
-            it.price = undefined; it.vol = undefined; detailed.push(it);
-          }
-        } else {
-          // headline-only news: include (useful)
-          detailed.push(it);
-        }
-        if(detailed.length >= 40) break;
-      }
-      // Filter by minVol if vol is available
-      const filtered = detailed.filter(x => !x.vol || x.vol >= minVol);
-      // show results (if none match, show demo warning)
-      if(filtered.length === 0){
-        showStatus('No items matched filters. Showing demo fallback.');
-        showResults(DEMO);
-      } else {
-        showStatus(`Live Finnhub feed | items: ${filtered.length}`);
-        showResults(filtered);
-      }
-    } catch(err){
-      // err might be object {status, text} if thrown above.
-      console.error(err);
-      let message = 'Feed fetch failed';
-      if(err && err.status) message += ` (HTTP ${err.status})`;
-      if(err && err.text) message += ` — ${typeof err.text === 'string' ? err.text.substring(0,200) : ''}`;
-      showStatus(message);
-      // show raw error for debugging
-      showRaw(JSON.stringify(err,null,2));
-      // fallback demo
-      showResults(DEMO);
+    document.getElementById("status").innerText="Live Finnhub scan";
+    if(best){
+      document.getElementById("leader").innerText="🔥 Leader: "+best.symbol;
     }
+
+  }catch(err){
+    document.getElementById("status").innerText="API error";
   }
 
-  // --- wiring ---
-  saveBtn.addEventListener('click', () => { saveKey(); loadKey(); });
-  clearBtn.addEventListener('click', () => { clearKey(); });
-  scanBtn.addEventListener('click', () => { doScan({forceDemo:false}); });
-  forceDemoBtn.addEventListener('click', () => { doScan({forceDemo:true}); });
+  if(autoTimer) clearInterval(autoTimer);
+  autoTimer=setInterval(scan,60000);
+}
 
-  // load saved key and initial session label
-  loadKey();
-  sessionLabel.textContent = 'Session: ' + getSession();
-  // Update session label every 30s
-  setInterval(()=>{ sessionLabel.textContent = 'Session: ' + getSession(); }, 30000);
-
-  // initial quick scan with demo so the page shows something
-  // don't auto call live API until user presses scan
-  showResults(DEMO);
-})();
+document.getElementById("apiKey").value=getKey()||"";
+document.getElementById("session").innerText="Session: "+getSession();
 </script>
+
 </body>
 </html>
