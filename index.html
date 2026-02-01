@@ -2,139 +2,137 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner vA</title>
+<title>Penny Scanner PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body {
+body{
   margin:0;
-  font-family: Arial, sans-serif;
+  font-family:Arial,Helvetica,sans-serif;
   background:#0b1220;
   color:white;
+  text-align:center;
 }
-.container {
-  padding:20px;
-  max-width:700px;
-  margin:auto;
-}
-button,input {
+h1{margin-top:20px}
+input,button{
   padding:10px;
   border-radius:8px;
   border:none;
   font-size:16px;
 }
-button {
-  background:#3b82f6;
-  color:white;
-}
-.card {
-  background:#111827;
+button{background:#3b82f6;color:white;margin-left:5px}
+.card{
+  background:#111a2f;
+  margin:12px;
+  padding:15px;
   border-radius:12px;
-  padding:12px;
-  margin:12px 0;
-  border-left:6px solid #22c55e;
+  text-align:left;
 }
-.warm {border-left-color:#facc15;}
-.watch {border-left-color:#38bdf8;}
-h1 {text-align:center;}
-.small {color:#94a3b8;font-size:14px;}
+.hot{border-left:6px solid #00ff9c}
+.warm{border-left:6px solid orange}
+.watch{border-left:6px solid #60a5fa}
 </style>
 </head>
-
 <body>
-<div class="container">
-<h1>📈 Penny Scanner vA</h1>
 
-<input id="vol" type="number" value="100000" placeholder="Min Volume">
+<h1>📈 Penny Scanner PRO</h1>
+
+<input id="apikey" placeholder="d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0">
+<button onclick="saveKey()">Save Key</button>
+
+<br><br>
+
+<input id="minVol" value="100000" type="number">
 <button onclick="scan()">Scan Now</button>
 
 <p id="session"></p>
 <p id="status"></p>
+
 <div id="results"></div>
-</div>
 
 <script>
-const API_KEY = "d5ubd49r01quhg55j9ogd5ubd49r01quhg55j9p0";
+let API_KEY = localStorage.getItem("finnhub_key") || "PASTE_API_KEY_HERE";
+document.getElementById("apikey").value = API_KEY;
+
+function saveKey(){
+  API_KEY = document.getElementById("apikey").value.trim();
+  localStorage.setItem("finnhub_key", API_KEY);
+  alert("Key saved");
+}
 
 function getSession(){
   const now = new Date();
   const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t = et.getHours()*60 + et.getMinutes();
-
   if(t>=240 && t<570) return "PRE-MARKET";
-  if(t>=570 && t<960) return "RTH";
+  if(t>=570 && t<960) return "OPEN";
   if(t>=960 && t<1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
 async function scan(){
-  const minVol = parseInt(document.getElementById("vol").value);
+  const minVol = parseInt(document.getElementById("minVol").value);
   const session = getSession();
-  document.getElementById("session").innerText = "Session: " + session;
-  document.getElementById("status").innerText = "Fetching symbols...";
-  document.getElementById("results").innerHTML="";
+  document.getElementById("session").innerText = "Session: "+session;
+  document.getElementById("status").innerText = "Scanning...";
+  document.getElementById("results").innerHTML = "";
 
-  try{
-    const symbolsRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${API_KEY}`);
-    const symbols = await symbolsRes.json();
-
-    const picks = symbols.slice(0,40); // limit API usage
-    let results = [];
-
-    for(let s of picks){
-      const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${s.symbol}&token=${API_KEY}`);
-      const q = await qRes.json();
-
-      if(!q.c || q.v < minVol || q.c > 10) continue;
-
-      let newsTitle="No news";
-
-      try{
-        const nRes = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${s.symbol}&from=2026-01-01&to=2026-12-31&token=${API_KEY}`);
-        const news = await nRes.json();
-        if(news.length>0) newsTitle = news[0].headline;
-      }catch{}
-
-      const status = q.v > minVol*5 ? "HOT" : q.v > minVol*2 ? "WARM" : "WATCH";
-
-      results.push({
-        symbol:s.symbol,
-        price:q.c,
-        vol:q.v,
-        news:newsTitle,
-        status
-      });
-    }
-
-    render(results);
-
-  }catch(e){
-    document.getElementById("status").innerText="API Error";
-  }
-}
-
-function render(list){
-  document.getElementById("status").innerText = `Found ${list.length} stocks`;
-  const box = document.getElementById("results");
-
-  if(list.length===0){
-    box.innerHTML="<p>No penny stocks found</p>";
+  if(!API_KEY){
+    document.getElementById("status").innerText="No API key";
     return;
   }
 
-  list.sort((a,b)=>b.vol-a.vol);
+  try{
+    const newsRes = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`);
+    const news = await newsRes.json();
 
-  list.forEach(s=>{
-    const div = document.createElement("div");
-    div.className="card " + (s.status==="HOT"?"":"warm");
-    div.innerHTML = `
-      <b>${s.symbol} $${s.price.toFixed(2)}</b><br>
-      Vol: ${s.vol.toLocaleString()}<br>
-      ${s.news}<br>
-      <b>Status: ${s.status}</b><br>
-      <a href="https://finance.yahoo.com/quote/${s.symbol}" target="_blank">📊 Chart</a>
-    `;
-    box.appendChild(div);
-  });
+    let shown=0;
+
+    for(const n of news.slice(0,10)){
+      const symbol = n.related.split(",")[0];
+      if(!symbol) continue;
+
+      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${API_KEY}`);
+      const quote = await q.json();
+
+      const to = Math.floor(Date.now()/1000);
+      const from = to - 3600*6;
+      const c = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=1&from=${from}&to=${to}&token=${API_KEY}`);
+      const candles = await c.json();
+
+      let volume = 0;
+      if(candles.s==="ok" && candles.v.length){
+        volume = candles.v[candles.v.length-1];
+      }
+
+      if(quote.c<=10 && volume>=minVol){
+        shown++;
+        let status="WATCH",cls="watch";
+        if(volume>500000) {status="WARM";cls="warm";}
+        if(volume>1000000){status="HOT";cls="hot";}
+
+        document.getElementById("results").innerHTML += `
+        <div class="card ${cls}">
+          <b>${symbol} $${quote.c.toFixed(2)}</b><br>
+          Vol: ${volume.toLocaleString()}<br>
+          ${n.headline}<br>
+          Status: ${status}<br>
+          <a href="${n.url}" target="_blank">Article</a>
+        </div>`;
+      }
+    }
+
+    if(shown===0){
+      document.getElementById("status").innerText="No penny stocks found";
+    } else {
+      document.getElementById("status").innerText="Scan complete";
+    }
+
+  }catch(e){
+    document.getElementById("status").innerText="API Error";
+    console.log(e);
+  }
 }
 </script>
+
 </body>
 </html>
