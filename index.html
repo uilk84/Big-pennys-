@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v28</title>
+<title>Penny Scanner PRO v29</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{
@@ -12,7 +12,7 @@
   --bg:#f3f4f6; --card:#ffffff; --text:#020617; --accent:#2563eb;
 }
 body{font-family:Arial;background:var(--bg);color:var(--text);margin:0;padding:10px;text-align:center}
-button,input{padding:10px;border-radius:8px;border:none;margin:5px}
+button,input,select{padding:10px;border-radius:8px;border:none;margin:5px}
 button{background:var(--accent);color:white;font-weight:bold}
 .card{background:var(--card);margin:10px;padding:12px;border-radius:12px;text-align:left}
 .hot{border-left:5px solid #22c55e}
@@ -20,25 +20,27 @@ button{background:var(--accent);color:white;font-weight:bold}
 .watch{border-left:5px solid #38bdf8}
 #errorLog{color:#f87171;font-size:12px}
 .settings{background:var(--card);padding:10px;border-radius:12px;margin-bottom:10px}
+small{opacity:.7}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v28</h1>
+<h1>📈 Penny Scanner PRO v29</h1>
 
 <button onclick="toggleSettings()">⚙️ Settings</button>
 <div id="settings" class="settings" style="display:none">
 
 <input id="finnhubKey" placeholder="Finnhub API Key"/><br>
 
+<label>Price Preset</label><br>
+<select id="pricePreset">
+  <option value="1">Under $1</option>
+  <option value="5">Under $5</option>
+  <option value="10" selected>Under $10</option>
+</select><br>
+
 <label>Min Volume</label><br>
-<input id="minVol" type="number"/><br>
-
-<label>Max Float (millions)</label><br>
-<input id="maxFloat" type="number"/><br>
-
-<label>Max Market Cap (millions)</label><br>
-<input id="maxCap" type="number"/><br>
+<input id="minVol" type="number" value="5000"/><br>
 
 <label><input type="checkbox" id="autoScan"> Auto Scan</label><br>
 <label><input type="checkbox" id="lightMode"> Light Mode</label><br>
@@ -47,10 +49,14 @@ button{background:var(--accent);color:white;font-weight:bold}
 </div>
 
 <button onclick="scan()">Scan Now</button>
+<button onclick="exportCSV()">Export CSV</button>
 
 <p id="session"></p>
 <p id="progress"></p>
 <p id="leader"></p>
+
+<h3>📰 News Catalysts</h3>
+<div id="newsPanel"></div>
 
 <h3>🏆 Leaderboard</h3>
 <div id="leaderboard"></div>
@@ -69,23 +75,23 @@ button{background:var(--accent);color:white;font-weight:bold}
 </audio>
 
 <script>
-const BATCHES=[
-["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI"],
-["PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY"],
-["AKTS","MARA","RIOT","PLUG","SNDL","BB","SPCE","NIO","LCID","RIVN"]
+const SYMBOL_UNIVERSE=[
+"SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI",
+"PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY",
+"AKTS","MARA","RIOT","PLUG","SNDL","BB","SPCE","NIO","LCID","RIVN",
+"AMC","GME","BBIG","ATER","CTRM","CEI","MCOM","XELA","IDEX"
 ];
 
-let batchIndex=parseInt(localStorage.getItem("batchIndex")||"0");
-let history=[], leaderboard={}, cooldown={}, errors=[];
+let universeIndex=parseInt(localStorage.getItem("universeIndex")||"0");
+let history=[], leaderboard={}, cooldown={}, errors=[], resultsData=[];
 let autoTimer=null;
 
 const TIMEOUT=5000;
 
-// load settings
+// Load settings
 finnhubKey.value=localStorage.getItem("FINNHUB_KEY")||"";
 minVol.value=localStorage.getItem("MINVOL")||5000;
-maxFloat.value=localStorage.getItem("MAXFLOAT")||"";
-maxCap.value=localStorage.getItem("MAXCAP")||"";
+pricePreset.value=localStorage.getItem("PRICE")||10;
 
 lightMode.checked=localStorage.getItem("LIGHT")==="1";
 if(lightMode.checked) document.body.classList.add("light");
@@ -100,8 +106,7 @@ function toggleSettings(){
 function saveSettings(){
   localStorage.setItem("FINNHUB_KEY",finnhubKey.value.trim());
   localStorage.setItem("MINVOL",minVol.value);
-  localStorage.setItem("MAXFLOAT",maxFloat.value);
-  localStorage.setItem("MAXCAP",maxCap.value);
+  localStorage.setItem("PRICE",pricePreset.value);
   localStorage.setItem("AUTO",autoScan.checked?"1":"0");
   localStorage.setItem("LIGHT",lightMode.checked?"1":"0");
   alert("Saved");
@@ -135,10 +140,12 @@ function dailyReset(){
   }
 }
 
-function score(dp,vol){
+function score(dp,vol,pmh,news){
   let s=0;
   if(dp>5)s+=30; else if(dp>2)s+=15;
   if(vol>50000)s+=20;
+  if(pmh)s+=25;
+  if(news)s+=25;
   return s;
 }
 
@@ -151,6 +158,7 @@ function timeoutFetch(url){
 
 async function scan(){
   dailyReset();
+  resultsData=[];
   const key=localStorage.getItem("FINNHUB_KEY");
   if(!key){alert("Enter Finnhub API key");return;}
 
@@ -160,44 +168,58 @@ async function scan(){
   results.innerHTML="";
   leader.innerText="";
   errorLog.innerHTML="";
+  newsPanel.innerHTML="";
   errors=[];
 
-  let symbols=BATCHES[batchIndex];
-  batchIndex=(batchIndex+1)%BATCHES.length;
-  localStorage.setItem("batchIndex",batchIndex);
+  const batch=SYMBOL_UNIVERSE.slice(universeIndex, universeIndex+15);
+  universeIndex=(universeIndex+15)%SYMBOL_UNIVERSE.length;
+  localStorage.setItem("universeIndex",universeIndex);
 
-  let html="",best=null,done=0;
+  let best=null, html="", done=0;
 
-  for(const sym of symbols){
+  for(const sym of batch){
     try{
-      progress.innerText=`Scanning ${++done}/${symbols.length}`;
-      const d=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
-      if(!d.c||d.c>10||d.v<minVol.value) continue;
+      progress.innerText=`Scanning ${++done}/${batch.length}`;
+      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+      const news=await timeoutFetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=2024-01-01&to=2026-12-31&token=${key}`);
 
-      const q=score(d.dp,d.v);
+      const maxPrice=parseFloat(pricePreset.value);
+      if(!q.c||q.c>maxPrice||q.v<minVol.value) continue;
+
+      const pmh=q.dp>5;
+      const hasNews=news.length>0;
+      const sc=score(q.dp,q.v,pmh,hasNews);
+
       let status="WATCH";
-      if(q>=50)status="WARM";
-      if(q>=70)status="HOT";
+      if(sc>=70)status="HOT";
+      else if(sc>=50)status="WARM";
 
       if(status==="HOT"&&!cooldown[sym]){
         alertSound.play();
         if(Notification.permission==="granted"){
-          new Notification("🔥 HOT", {body:`${sym} ${d.dp.toFixed(2)}%`});
+          new Notification("🔥 HOT", {body:`${sym} ${q.dp.toFixed(2)}%`});
         }
         cooldown[sym]=Date.now();
       }
 
-      leaderboard[sym]=Math.max(leaderboard[sym]||0,q);
-      history.unshift(`${new Date().toLocaleTimeString()} ${sym} ${q}`);
+      leaderboard[sym]=Math.max(leaderboard[sym]||0,sc);
+      history.unshift(`${new Date().toLocaleTimeString()} ${sym} ${sc}`);
       history=history.slice(0,20);
 
-      if(!best||d.dp>best.dp) best={sym,dp:d.dp};
+      if(hasNews){
+        newsPanel.innerHTML+=`<div class="card watch"><b>${sym}</b>: ${news[0].headline}</div>`;
+      }
+
+      if(!best||q.dp>best.dp) best={sym,dp:q.dp};
+
+      resultsData.push({sym,price:q.c,change:q.dp,vol:q.v,score:sc});
 
       html+=`
       <div class="card ${status.toLowerCase()}">
-      <b>${sym} $${d.c.toFixed(2)}</b><br>
-      Vol:${d.v} Change:${d.dp}% Score:${q}<br>
-      <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
+        <b>${sym} $${q.c.toFixed(2)}</b><br>
+        Vol:${q.v} Change:${q.dp}% Score:${sc}<br>
+        PMH:${pmh} News:${hasNews}<br>
+        <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
       </div>`;
     }catch(e){
       errors.push(sym+" failed");
@@ -212,6 +234,20 @@ async function scan(){
 
   progress.innerText="Scan complete";
   results.innerHTML=html||"No penny stocks in this batch";
+}
+
+function exportCSV(){
+  if(resultsData.length===0){alert("No data to export");return;}
+  let csv="Symbol,Price,Change%,Volume,Score\n";
+  resultsData.forEach(r=>{
+    csv+=`${r.sym},${r.price},${r.change},${r.vol},${r.score}\n`;
+  });
+  const blob=new Blob([csv],{type:"text/csv"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="scanner_results.csv";
+  a.click();
 }
 
 function renderHistory(){
@@ -234,6 +270,7 @@ const leaderboardEl=document.getElementById("leaderboard");
 const leader=document.getElementById("leader");
 const errorLog=document.getElementById("errorLog");
 const alertSound=document.getElementById("alertSound");
+const newsPanel=document.getElementById("newsPanel");
 </script>
 
 </body>
