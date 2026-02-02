@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v27.1</title>
+<title>Penny Scanner PRO v27.2</title>
 <style>
 body{font-family:Arial,sans-serif;background:#020617;color:white;text-align:center}
 input,button{padding:10px;border-radius:8px;border:none;margin:5px}
@@ -18,7 +18,7 @@ small{opacity:.7}
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v27.1 (FAST)</h1>
+<h1>📈 Penny Scanner PRO v27.2</h1>
 
 <input id="finnhubKey" placeholder="Finnhub API Key"/>
 <input id="fmpKey" placeholder="FMP API Key"/><br>
@@ -46,19 +46,13 @@ small{opacity:.7}
 </audio>
 
 <script>
-let FINNHUB_KEY = localStorage.getItem("FINNHUB_KEY") || "";
-let FMP_KEY = localStorage.getItem("FMP_KEY") || "";
-finnhubKey.value = FINNHUB_KEY;
-fmpKey.value = FMP_KEY;
+let FINNHUB_KEY=localStorage.getItem("FINNHUB_KEY")||"";
+let FMP_KEY=localStorage.getItem("FMP_KEY")||"";
+finnhubKey.value=FINNHUB_KEY;
+fmpKey.value=FMP_KEY;
 
-let autoTimer=null;
-let history=[];
-let leaderboard={};
-let cooldown={};
-
-const MAX_SYMBOLS=40;
-const PARALLEL=5;
-const TIMEOUT=5000;
+let history=[], leaderboard={}, cooldown={}, autoTimer=null;
+const MAX=40, PARALLEL=5, TIMEOUT=5000;
 
 function saveKeys(){
   FINNHUB_KEY=finnhubKey.value.trim();
@@ -82,12 +76,12 @@ function getSession(){
   return "CLOSED";
 }
 
-function qualityScore(dp,vol,pmh,news){
+function score(dp,vol,pmh,news){
   let s=0;
-  if(dp>5) s+=30; else if(dp>2) s+=15;
-  if(vol>100000) s+=20;
-  if(pmh) s+=25;
-  if(news) s+=25;
+  if(dp>5)s+=30; else if(dp>2)s+=15;
+  if(vol>100000)s+=20;
+  if(pmh)s+=25;
+  if(news)s+=25;
   return s;
 }
 
@@ -105,76 +99,72 @@ async function scan(){
   results.innerHTML="";
   leader.innerText="";
 
-  if(!FINNHUB_KEY||!FMP_KEY){alert("Enter API keys");return;}
+  if(!FINNHUB_KEY||!FMP_KEY){alert("Enter both API keys");return;}
   if(session==="CLOSED"){fetchNewsOnly();return;}
 
   let symbols=new Set();
 
   try{
-    const g=await timeoutFetch(`https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${FMP_KEY}`);
-    const a=await timeoutFetch(`https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${FMP_KEY}`);
-    g.slice(0,20).forEach(x=>symbols.add(x.symbol));
-    a.slice(0,20).forEach(x=>symbols.add(x.symbol));
+    const screener=await timeoutFetch(`https://financialmodelingprep.com/api/v3/stock-screener?priceLowerThan=10&volumeMoreThan=${minVol.value}&limit=50&apikey=${FMP_KEY}`);
+    screener.forEach(x=>symbols.add(x.symbol));
   }catch(e){
-    progress.innerText="Feed error (FMP)";
-    return;
+    progress.innerText="FMP screener failed, using news only...";
   }
 
-  const symList=[...symbols].slice(0,MAX_SYMBOLS);
-  let completed=0;
-  let best=null;
-  let html="";
-
-  for(let i=0;i<symList.length;i+=PARALLEL){
-    const batch=symList.slice(i,i+PARALLEL);
-
-    const promises=batch.map(sym=>{
-      return timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`)
-        .then(d=>({sym,d}))
-        .catch(()=>null);
+  try{
+    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
+    news.slice(0,20).forEach(n=>{
+      if(n.related) symbols.add(n.related.split(",")[0]);
     });
+  }catch(e){}
 
-    const resultsBatch=await Promise.all(promises);
+  const list=[...symbols].slice(0,MAX);
+  let done=0, html="", best=null;
 
-    resultsBatch.forEach(res=>{
-      completed++;
-      progress.innerText=`Scanning ${completed} / ${symList.length}...`;
+  for(let i=0;i<list.length;i+=PARALLEL){
+    const batch=list.slice(i,i+PARALLEL);
+    const promises=batch.map(sym=>
+      timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`)
+      .then(d=>({sym,d}))
+      .catch(()=>null)
+    );
+    const res=await Promise.all(promises);
 
-      if(!res||!res.d||!res.d.c) return;
-
-      const d=res.d;
+    res.forEach(r=>{
+      done++;
+      progress.innerText=`Scanning ${done}/${list.length}...`;
+      if(!r||!r.d||!r.d.c) return;
+      const d=r.d;
       if(d.c>10||d.v<minVol.value) return;
 
       const pmh=d.dp>5;
-      const score=qualityScore(d.dp,d.v,pmh,true);
+      const q=score(d.dp,d.v,pmh,true);
       let status="WATCH";
-      if(score>=70) status="HOT";
-      else if(score>=50) status="WARM";
+      if(q>=70)status="HOT"; else if(q>=50)status="WARM";
 
-      if(status==="HOT" && !cooldown[res.sym]){
+      if(status==="HOT"&&!cooldown[r.sym]){
         alertSound.play();
-        cooldown[res.sym]=Date.now();
+        cooldown[r.sym]=Date.now();
       }
 
-      leaderboard[res.sym]=Math.max(leaderboard[res.sym]||0,score);
-      history.unshift(`${new Date().toLocaleTimeString()} ${res.sym} ${score}`);
+      leaderboard[r.sym]=Math.max(leaderboard[r.sym]||0,q);
+      history.unshift(`${new Date().toLocaleTimeString()} ${r.sym} ${q}`);
       history=history.slice(0,20);
 
-      if(!best||d.dp>best.dp) best={sym:res.sym,dp:d.dp};
+      if(!best||d.dp>best.dp)best={sym:r.sym,dp:d.dp};
 
       html+=`
       <div class="card ${status.toLowerCase()}">
-        <b>${res.sym} $${d.c.toFixed(2)}</b><br>
+        <b>${r.sym} $${d.c.toFixed(2)}</b><br>
         Vol:${d.v} Change:${d.dp}%<br>
-        PMH:${pmh} Score:${score} Status:${status}<br>
-        <a href="https://www.tradingview.com/chart/?symbol=${res.sym}" target="_blank">📊 Chart</a>
+        PMH:${pmh} Score:${q} Status:${status}<br>
+        <a href="https://www.tradingview.com/chart/?symbol=${r.sym}" target="_blank">📊 Chart</a>
       </div>`;
     });
   }
 
-  if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
-  renderHistory();
-  renderLeaderboard();
+  if(best)leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
+  renderHistory(); renderLeaderboard();
   progress.innerText="Scan complete";
   results.innerHTML=html||"No penny stocks found";
 }
