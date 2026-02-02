@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v27.2</title>
+<title>Penny Scanner PRO v27.3</title>
 <style>
 body{font-family:Arial,sans-serif;background:#020617;color:white;text-align:center}
 input,button{padding:10px;border-radius:8px;border:none;margin:5px}
@@ -18,11 +18,10 @@ small{opacity:.7}
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v27.2</h1>
+<h1>📈 Penny Scanner PRO v27.3 (Catalyst)</h1>
 
 <input id="finnhubKey" placeholder="Finnhub API Key"/>
-<input id="fmpKey" placeholder="FMP API Key"/><br>
-<button onclick="saveKeys()">Save Keys</button><br>
+<button onclick="saveKey()">Save Key</button><br>
 
 <input id="minVol" type="number" value="10000"/>
 <button onclick="scan()">Scan Now</button>
@@ -31,9 +30,6 @@ small{opacity:.7}
 <p id="session"></p>
 <p id="progress"></p>
 <p id="leader"></p>
-
-<h3>🏆 Leaderboard</h3>
-<div id="leaderboard"></div>
 
 <h3>📜 Signal History</h3>
 <div id="history"></div>
@@ -46,25 +42,31 @@ small{opacity:.7}
 </audio>
 
 <script>
-let FINNHUB_KEY=localStorage.getItem("FINNHUB_KEY")||"";
-let FMP_KEY=localStorage.getItem("FMP_KEY")||"";
-finnhubKey.value=FINNHUB_KEY;
-fmpKey.value=FMP_KEY;
+let FINNHUB_KEY = localStorage.getItem("FINNHUB_KEY") || "";
+finnhubKey.value = FINNHUB_KEY;
 
-let history=[], leaderboard={}, cooldown={}, autoTimer=null;
-const MAX=40, PARALLEL=5, TIMEOUT=5000;
+let autoTimer=null;
+let history=[];
+let cooldown={};
 
-function saveKeys(){
+const TIMEOUT=5000;
+const MAX_SYMBOLS=40;
+
+function saveKey(){
   FINNHUB_KEY=finnhubKey.value.trim();
-  FMP_KEY=fmpKey.value.trim();
   localStorage.setItem("FINNHUB_KEY",FINNHUB_KEY);
-  localStorage.setItem("FMP_KEY",FMP_KEY);
-  alert("Keys saved");
+  alert("API key saved");
 }
 
 function toggleAuto(){
-  if(autoTimer){clearInterval(autoTimer);autoTimer=null;alert("Auto OFF")}
-  else{autoTimer=setInterval(scan,60000);alert("Auto ON")}
+  if(autoTimer){
+    clearInterval(autoTimer);
+    autoTimer=null;
+    alert("Auto Scan OFF");
+  } else {
+    autoTimer=setInterval(scan,60000);
+    alert("Auto Scan ON (60s)");
+  }
 }
 
 function getSession(){
@@ -99,83 +101,78 @@ async function scan(){
   results.innerHTML="";
   leader.innerText="";
 
-  if(!FINNHUB_KEY||!FMP_KEY){alert("Enter both API keys");return;}
-  if(session==="CLOSED"){fetchNewsOnly();return;}
+  if(!FINNHUB_KEY){
+    alert("Enter Finnhub API key");
+    return;
+  }
+
+  if(session==="CLOSED"){
+    fetchNewsOnly();
+    return;
+  }
 
   let symbols=new Set();
 
   try{
-    const screener=await timeoutFetch(`https://financialmodelingprep.com/api/v3/stock-screener?priceLowerThan=10&volumeMoreThan=${minVol.value}&limit=50&apikey=${FMP_KEY}`);
-    screener.forEach(x=>symbols.add(x.symbol));
+    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
+    news.slice(0,40).forEach(n=>{
+      if(n.related){
+        const sym=n.related.split(",")[0];
+        symbols.add(sym);
+      }
+    });
   }catch(e){
-    progress.innerText="FMP screener failed, using news only...";
+    progress.innerText="News feed error";
+    return;
   }
 
-  try{
-    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
-    news.slice(0,20).forEach(n=>{
-      if(n.related) symbols.add(n.related.split(",")[0]);
-    });
-  }catch(e){}
-
-  const list=[...symbols].slice(0,MAX);
+  const list=[...symbols].slice(0,MAX_SYMBOLS);
   let done=0, html="", best=null;
 
-  for(let i=0;i<list.length;i+=PARALLEL){
-    const batch=list.slice(i,i+PARALLEL);
-    const promises=batch.map(sym=>
-      timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`)
-      .then(d=>({sym,d}))
-      .catch(()=>null)
-    );
-    const res=await Promise.all(promises);
+  for(const sym of list){
+    try{
+      progress.innerText=`Scanning ${done+1}/${list.length}...`;
 
-    res.forEach(r=>{
+      const d=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`);
       done++;
-      progress.innerText=`Scanning ${done}/${list.length}...`;
-      if(!r||!r.d||!r.d.c) return;
-      const d=r.d;
-      if(d.c>10||d.v<minVol.value) return;
+
+      if(!d.c||d.c>10||d.v<minVol.value) continue;
 
       const pmh=d.dp>5;
       const q=score(d.dp,d.v,pmh,true);
-      let status="WATCH";
-      if(q>=70)status="HOT"; else if(q>=50)status="WARM";
 
-      if(status==="HOT"&&!cooldown[r.sym]){
+      let status="WATCH";
+      if(q>=70) status="HOT";
+      else if(q>=50) status="WARM";
+
+      if(status==="HOT"&&!cooldown[sym]){
         alertSound.play();
-        cooldown[r.sym]=Date.now();
+        cooldown[sym]=Date.now();
       }
 
-      leaderboard[r.sym]=Math.max(leaderboard[r.sym]||0,q);
-      history.unshift(`${new Date().toLocaleTimeString()} ${r.sym} ${q}`);
+      history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${q}`);
       history=history.slice(0,20);
 
-      if(!best||d.dp>best.dp)best={sym:r.sym,dp:d.dp};
+      if(!best||d.dp>best.dp) best={sym,dp:d.dp};
 
       html+=`
       <div class="card ${status.toLowerCase()}">
-        <b>${r.sym} $${d.c.toFixed(2)}</b><br>
+        <b>${sym} $${d.c.toFixed(2)}</b><br>
         Vol:${d.v} Change:${d.dp}%<br>
         PMH:${pmh} Score:${q} Status:${status}<br>
-        <a href="https://www.tradingview.com/chart/?symbol=${r.sym}" target="_blank">📊 Chart</a>
+        <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
       </div>`;
-    });
+    }catch(e){}
   }
 
-  if(best)leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
-  renderHistory(); renderLeaderboard();
+  if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
+  renderHistory();
   progress.innerText="Scan complete";
   results.innerHTML=html||"No penny stocks found";
 }
 
 function renderHistory(){
   historyEl.innerHTML=history.map(x=>`<div class="card watch">${x}</div>`).join("")||"No signals yet";
-}
-function renderLeaderboard(){
-  leaderboardEl.innerHTML=Object.entries(leaderboard)
-    .sort((a,b)=>b[1]-a[1]).slice(0,5)
-    .map(x=>`<div class="card warm">${x[0]} — ${x[1]}</div>`).join("")||"No leaders yet";
 }
 
 async function fetchNewsOnly(){
@@ -196,7 +193,6 @@ async function fetchNewsOnly(){
 const sessionEl=document.getElementById("session");
 const results=document.getElementById("results");
 const historyEl=document.getElementById("history");
-const leaderboardEl=document.getElementById("leaderboard");
 const leader=document.getElementById("leader");
 const progress=document.getElementById("progress");
 const alertSound=document.getElementById("alertSound");
