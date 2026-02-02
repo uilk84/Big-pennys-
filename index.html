@@ -2,43 +2,27 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v26 (Hybrid)</title>
+<title>Penny Scanner PRO v27</title>
 <style>
-body{
-  font-family:Arial,sans-serif;
-  background:#020617;
-  color:white;
-  text-align:center;
-}
-input,button{
-  padding:10px;
-  border-radius:8px;
-  border:none;
-  margin:5px;
-}
-button{background:#3b82f6;color:white;font-weight:bold;}
-.card{
-  background:#0f172a;
-  margin:10px;
-  padding:12px;
-  border-radius:12px;
-  text-align:left;
-}
-.hot{border-left:5px solid #22c55e;}
-.warm{border-left:5px solid orange;}
-.watch{border-left:5px solid #38bdf8;}
-#leader{color:#22c55e;font-size:18px;}
-small{opacity:.7;}
+body{font-family:Arial,sans-serif;background:#020617;color:white;text-align:center}
+input,button{padding:10px;border-radius:8px;border:none;margin:5px}
+button{background:#3b82f6;color:white;font-weight:bold}
+.card{background:#0f172a;margin:10px;padding:12px;border-radius:12px;text-align:left}
+.hot{border-left:5px solid #22c55e}
+.warm{border-left:5px solid orange}
+.watch{border-left:5px solid #38bdf8}
+#leader{color:#22c55e;font-size:18px}
+small{opacity:.7}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v26 (Hybrid)</h1>
+<h1>📈 Penny Scanner PRO v27</h1>
 
 <input id="finnhubKey" placeholder="Finnhub API Key"/>
-<button onclick="saveKeys()">Save Keys</button><br>
-
 <input id="fmpKey" placeholder="FMP API Key"/><br>
+<input id="tgKey" placeholder="Telegram Webhook (optional)"/><br>
+<button onclick="saveKeys()">Save Keys</button><br>
 
 <input id="minVol" type="number" value="10000"/>
 <button onclick="scan()">Scan Now</button>
@@ -46,6 +30,9 @@ small{opacity:.7;}
 
 <p id="session"></p>
 <p id="leader"></p>
+
+<h3>🏆 Leaderboard</h3>
+<div id="leaderboard"></div>
 
 <h3>📜 Signal History</h3>
 <div id="history"></div>
@@ -60,35 +47,34 @@ small{opacity:.7;}
 <script>
 let FINNHUB_KEY = localStorage.getItem("FINNHUB_KEY") || "";
 let FMP_KEY = localStorage.getItem("FMP_KEY") || "";
+let TG_KEY = localStorage.getItem("TG_KEY") || "";
+
 document.getElementById("finnhubKey").value = FINNHUB_KEY;
 document.getElementById("fmpKey").value = FMP_KEY;
+document.getElementById("tgKey").value = TG_KEY;
 
 let autoTimer=null;
 let history=[];
-let alertedSymbols=[];
+let leaderboard={};
+let cooldown={};
 
 function saveKeys(){
-  FINNHUB_KEY=document.getElementById("finnhubKey").value.trim();
-  FMP_KEY=document.getElementById("fmpKey").value.trim();
+  FINNHUB_KEY=finnhubKey.value.trim();
+  FMP_KEY=fmpKey.value.trim();
+  TG_KEY=tgKey.value.trim();
   localStorage.setItem("FINNHUB_KEY",FINNHUB_KEY);
   localStorage.setItem("FMP_KEY",FMP_KEY);
+  localStorage.setItem("TG_KEY",TG_KEY);
   alert("Keys saved");
 }
 
 function toggleAuto(){
-  if(autoTimer){
-    clearInterval(autoTimer);
-    autoTimer=null;
-    alert("Auto Scan OFF");
-  } else {
-    autoTimer=setInterval(scan,60000);
-    alert("Auto Scan ON (60s)");
-  }
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;alert("Auto OFF")}
+  else{autoTimer=setInterval(scan,60000);alert("Auto ON")}
 }
 
 function getSession(){
-  const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
-  const d=new Date(now);
+  const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t=d.getHours()*60+d.getMinutes();
   if(t>=240&&t<570) return "PRE-MARKET";
   if(t>=570&&t<960) return "OPEN";
@@ -96,117 +82,123 @@ function getSession(){
   return "CLOSED";
 }
 
-async function scan(){
-  const session=getSession();
-  document.getElementById("session").innerText="Session: "+session;
-  document.getElementById("results").innerHTML="Scanning market...";
-  document.getElementById("leader").innerText="";
-
-  if(!FINNHUB_KEY||!FMP_KEY){
-    alert("Enter both API keys");
-    return;
-  }
-
-  if(session==="CLOSED"){
-    fetchNewsOnly();
-  } else {
-    hybridScan();
+function dailyReset(){
+  const today=new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
+  if(localStorage.getItem("DAY")!==today){
+    localStorage.setItem("DAY",today);
+    history=[]; leaderboard={}; cooldown={};
   }
 }
 
-async function hybridScan(){
-  const minVol=parseInt(document.getElementById("minVol").value);
+function qualityScore(dp,vol,pmh,news){
+  let s=0;
+  if(dp>5) s+=30; else if(dp>2) s+=15;
+  if(vol>100000) s+=20;
+  if(pmh) s+=25;
+  if(news) s+=25;
+  return s;
+}
+
+function sendTelegram(msg){
+  if(!TG_KEY) return;
+  fetch(TG_KEY,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:msg})});
+}
+
+async function scan(){
+  dailyReset();
+  const session=getSession();
+  sessionEl.innerText="Session: "+session;
+  results.innerHTML="Scanning...";
+  leader.innerText="";
+
+  if(!FINNHUB_KEY||!FMP_KEY){alert("Enter API keys");return;}
+
+  if(session==="CLOSED"){fetchNewsOnly();return;}
+
   let symbols=new Set();
 
-  // FMP gainers + actives
-  const g1=await fetch(`https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${FMP_KEY}`);
-  const gainers=await g1.json();
-  const g2=await fetch(`https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${FMP_KEY}`);
-  const actives=await g2.json();
+  const g=await fetch(`https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey=${FMP_KEY}`);
+  const a=await fetch(`https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=${FMP_KEY}`);
+  const gainers=await g.json();
+  const actives=await a.json();
+  gainers.slice(0,20).forEach(x=>symbols.add(x.symbol));
+  actives.slice(0,20).forEach(x=>symbols.add(x.symbol));
 
-  gainers.slice(0,20).forEach(s=>symbols.add(s.symbol));
-  actives.slice(0,20).forEach(s=>symbols.add(s.symbol));
-
-  // Finnhub news
-  const newsRes=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
-  const news=await newsRes.json();
-  news.slice(0,20).forEach(n=>{
-    if(n.related){
-      const sym=n.related.split(",")[0];
-      symbols.add(sym);
-    }
+  const n=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
+  const news=await n.json();
+  news.slice(0,20).forEach(x=>{
+    if(x.related) symbols.add(x.related.split(",")[0]);
   });
 
-  let html="";
-  let leader=null;
+  let html="", best=null;
 
   for(const sym of symbols){
+    if(cooldown[sym] && Date.now()-cooldown[sym]<600000) continue;
+
     try{
       const q=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`);
-      const data=await q.json();
-      if(!data.c) continue;
+      const d=await q.json();
+      if(!d.c||d.c>10||d.v<minVol.value) continue;
 
-      if(data.c<=10 && data.v>=minVol){
-        let status="WATCH";
-        if(data.dp>5) status="HOT";
-        else if(data.dp>2) status="WARM";
+      const pmh=d.dp>5;
+      const score=qualityScore(d.dp,d.v,pmh,true);
+      let status="WATCH";
+      if(score>=70) status="HOT";
+      else if(score>=50) status="WARM";
 
-        if(status==="HOT" && !alertedSymbols.includes(sym)){
-          document.getElementById("alertSound").play();
-          alertedSymbols.push(sym);
-        }
-
-        if(!leader || data.dp>leader.dp){
-          leader={sym,dp:data.dp};
-        }
-
-        history.unshift(`${new Date().toLocaleTimeString()} ${sym} ${data.dp.toFixed(2)}%`);
-        history=history.slice(0,20);
-
-        html+=`
-        <div class="card ${status.toLowerCase()}">
-          <b>${sym} $${data.c.toFixed(2)}</b><br>
-          Vol: ${data.v}<br>
-          Change: ${data.dp}%<br>
-          Status: ${status}<br>
-          <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
-        </div>`;
+      if(status==="HOT"){
+        alertSound.play();
+        sendTelegram(`🔥 HOT ${sym} ${d.dp.toFixed(2)}% Score:${score}`);
+        cooldown[sym]=Date.now();
       }
+
+      leaderboard[sym]=Math.max(leaderboard[sym]||0,score);
+      history.unshift(`${new Date().toLocaleTimeString()} ${sym} ${score}`);
+      history=history.slice(0,20);
+
+      if(!best||d.dp>best.dp) best={sym,dp:d.dp};
+
+      html+=`
+      <div class="card ${status.toLowerCase()}">
+        <b>${sym} $${d.c.toFixed(2)}</b><br>
+        Vol:${d.v} Change:${d.dp}%<br>
+        PMH:${pmh} Score:${score} Status:${status}<br>
+        <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
+      </div>`;
     }catch(e){}
   }
 
-  if(leader){
-    document.getElementById("leader").innerText="🔥 Leader: "+leader.sym+" ("+leader.dp.toFixed(2)+"%)";
-  }
-
-  renderHistory();
-
-  document.getElementById("results").innerHTML=html || "No penny stocks found";
+  if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
+  renderHistory(); renderLeaderboard();
+  results.innerHTML=html||"No penny stocks found";
 }
 
 function renderHistory(){
-  let h="";
-  history.forEach(x=>{
-    h+=`<div class="card watch">${x}</div>`;
-  });
-  document.getElementById("history").innerHTML=h||"No signals yet";
+  historyEl.innerHTML=history.map(x=>`<div class="card watch">${x}</div>`).join("")||"No signals yet";
+}
+function renderLeaderboard(){
+  leaderboardEl.innerHTML=Object.entries(leaderboard)
+    .sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(x=>`<div class="card warm">${x[0]} — ${x[1]}</div>`).join("")||"No leaders yet";
 }
 
 async function fetchNewsOnly(){
-  const res=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
-  const news=await res.json();
-  let html="";
-  news.slice(0,10).forEach(n=>{
-    html+=`
+  const r=await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
+  const news=await r.json();
+  results.innerHTML=news.slice(0,10).map(n=>`
     <div class="card watch">
-      <b>NEWS</b><br>
-      ${n.headline}<br>
+      <b>NEWS</b><br>${n.headline}<br>
       <small>${n.source}</small><br>
       <a href="${n.url}" target="_blank">📰 Article</a>
-    </div>`;
-  });
-  document.getElementById("results").innerHTML=html;
+    </div>`).join("");
 }
+
+const sessionEl=document.getElementById("session");
+const results=document.getElementById("results");
+const historyEl=document.getElementById("history");
+const leaderboardEl=document.getElementById("leaderboard");
+const leader=document.getElementById("leader");
+const alertSound=document.getElementById("alertSound");
 </script>
 
 </body>
