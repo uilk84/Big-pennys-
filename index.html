@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v22</title>
+<title>Penny Scanner PRO v23</title>
 <style>
 body {
   margin:0;
@@ -34,33 +34,77 @@ button {
 .hot {border-left:5px solid #00ff9c;}
 .warm {border-left:5px solid orange;}
 .watch {border-left:5px solid #60a5fa;}
+.star {float:right; font-size:20px; cursor:pointer;}
+#favorites {margin-top:10px;}
 small {opacity:.7;}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v22</h1>
+<h1>📈 Penny Scanner PRO v23</h1>
 
 <input id="apiKey" placeholder="Enter Finnhub API Key"/>
 <button onclick="saveKey()">Save Key</button><br>
 
 <input id="minVol" type="number" value="100000"/>
-<button onclick="scan()">Scan Now</button><br>
+<button onclick="scan()">Scan Now</button>
+<button onclick="toggleAuto()">Auto Scan</button><br>
 
 <label><input type="checkbox" id="topGainers"> Top Gainers</label>
 <label><input type="checkbox" id="prOnly"> PR Only</label>
 
 <p id="session"></p>
+
+<h3>⭐ Favorites</h3>
+<div id="favorites"></div>
+
+<hr>
 <div id="results"></div>
 
 <script>
 let API_KEY = localStorage.getItem("FINNHUB_KEY") || "";
+let favorites = JSON.parse(localStorage.getItem("FAVORITES") || "[]");
+let autoTimer = null;
+
 document.getElementById("apiKey").value = API_KEY;
 
 function saveKey(){
   API_KEY = document.getElementById("apiKey").value.trim();
   localStorage.setItem("FINNHUB_KEY",API_KEY);
   alert("API Key Saved");
+}
+
+function toggleAuto(){
+  if(autoTimer){
+    clearInterval(autoTimer);
+    autoTimer=null;
+    alert("Auto Scan OFF");
+  } else {
+    autoTimer=setInterval(scan,60000);
+    alert("Auto Scan ON (every 60s)");
+  }
+}
+
+function saveFavorites(){
+  localStorage.setItem("FAVORITES", JSON.stringify(favorites));
+  renderFavorites();
+}
+
+function toggleFavorite(sym){
+  if(favorites.includes(sym)){
+    favorites = favorites.filter(s=>s!==sym);
+  } else {
+    favorites.push(sym);
+  }
+  saveFavorites();
+}
+
+function renderFavorites(){
+  let html="";
+  favorites.forEach(sym=>{
+    html+=`<div class="card watch">⭐ ${sym}</div>`;
+  });
+  document.getElementById("favorites").innerHTML = html || "No favorites yet";
 }
 
 function getSession(){
@@ -93,13 +137,13 @@ async function scan(){
 async function fetchStocks(){
   const minVol = parseInt(document.getElementById("minVol").value);
   const symbols = ["AAPL","TSLA","NVDA","AMD","AMC","GME","SOFI","PLTR","MARA","RIOT","F","T","NIO","LCID","RIVN","SPCE","BB","DKNG"];
-  let resultsHTML="";
+  let html="";
   let count=0;
 
   for(let sym of symbols){
     try{
-      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
-      const data = await q.json();
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
+      const data = await r.json();
       if(!data.c) continue;
 
       if(data.c<=10 && data.v>=minVol){
@@ -107,8 +151,11 @@ async function fetchStocks(){
         if(data.dp>5) status="HOT";
         else if(data.dp>2) status="WARM";
 
-        resultsHTML+=`
+        const star = favorites.includes(sym) ? "⭐" : "☆";
+
+        html+=`
         <div class="card ${status.toLowerCase()}">
+          <span class="star" onclick="toggleFavorite('${sym}')">${star}</span>
           <b>${sym} $${data.c.toFixed(2)}</b><br>
           Vol: ${data.v}<br>
           Change: ${data.dp}%<br>
@@ -123,7 +170,7 @@ async function fetchStocks(){
   if(count===0){
     document.getElementById("results").innerHTML="No penny stocks found";
   } else {
-    document.getElementById("results").innerHTML=resultsHTML;
+    document.getElementById("results").innerHTML=html;
   }
 }
 
@@ -142,6 +189,8 @@ async function fetchNews(){
   });
   document.getElementById("results").innerHTML=html;
 }
+
+renderFavorites();
 </script>
 
 </body>
