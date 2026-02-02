@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v18</title>
+<title>Penny Scanner PRO v19</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 :root{--bg:#050b16;--card:#0f1b2d;--text:white;}
@@ -19,11 +19,12 @@ button{background:#2f80ff;color:white;}
 .status{color:#7fd3ff;margin:4px;}
 a{color:#4db7ff;}
 .section{margin-top:10px;}
+.small{font-size:13px;opacity:.8;}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v18</h1>
+<h1>📈 Penny Scanner PRO v19</h1>
 
 <input id="apiKey" placeholder="Finnhub API Key">
 <button onclick="saveKey()">Save</button>
@@ -44,12 +45,22 @@ a{color:#4db7ff;}
 <div class="status" id="leader"></div>
 
 <div class="section">
+<h3>🏆 Leaderboard (Top Scores Today)</h3>
+<div id="leaderboard"></div>
+</div>
+
+<div class="section">
+<h3>📊 Performance Today</h3>
+<div id="stats"></div>
+</div>
+
+<div class="section">
 <h3>⭐ Favorites</h3>
 <div id="favorites"></div>
 </div>
 
 <div class="section">
-<h3>📜 Today’s Signals</h3>
+<h3>📜 Signal History</h3>
 <div id="history"></div>
 </div>
 
@@ -61,11 +72,12 @@ a{color:#4db7ff;}
 </audio>
 
 <script>
-const KEY_STORE="FINNHUB_KEY_V18";
-const FAV_STORE="FAVS_V18";
-const HIST_STORE="HISTORY_V18";
-const DAY_STORE="DAY_V18";
+const KEY_STORE="FINNHUB_KEY_V19";
+const FAV_STORE="FAVS_V19";
+const HIST_STORE="HISTORY_V19";
+const DAY_STORE="DAY_V19";
 const COOLDOWN_MIN=10;
+
 let autoTimer=null;
 
 function saveKey(){
@@ -104,12 +116,12 @@ function getSession(){
 
 function qualityScore(vol,pct,pmhBreak,pr){
   let score=0;
-  if(vol>1000000) score+=40;
-  else if(vol>500000) score+=25;
-  if(pct>5) score+=30;
+  if(vol>1000000) score+=35;
+  else if(vol>500000) score+=20;
+  if(pct>5) score+=25;
   else if(pct>2) score+=15;
-  if(pmhBreak) score+=20;
-  if(pr) score+=10;
+  if(pmhBreak) score+=25;
+  if(pr) score+=15;
   return score;
 }
 
@@ -129,10 +141,33 @@ function renderFavs(){
 }
 function renderHistory(){
   history.innerHTML="";
-  getHistory().forEach(h=>{
-    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (${h.score})</div>`;
+  getHistory().slice().reverse().forEach(h=>{
+    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (Score ${h.score})</div>`;
   });
 }
+function renderLeaderboard(){
+  const hist=getHistory();
+  const map={};
+  hist.forEach(h=>{
+    if(!map[h.symbol] || h.score>map[h.symbol]) map[h.symbol]=h.score;
+  });
+  const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  leaderboard.innerHTML="";
+  sorted.forEach(([sym,score])=>{
+    leaderboard.innerHTML+=`<div class="card warm">${sym} — ${score}</div>`;
+  });
+}
+
+function renderStats(){
+  const hist=getHistory();
+  let hot=0,warm=0;
+  hist.forEach(h=>{
+    if(h.score>=80) hot++;
+    else if(h.score>=60) warm++;
+  });
+  stats.innerHTML=`HOT: ${hot} | WARM: ${warm} | Total signals: ${hist.length}`;
+}
+
 function toggleFav(sym){
   let f=getFavs();
   if(f.includes(sym)) f=f.filter(x=>x!==sym);
@@ -177,9 +212,7 @@ async function scan(){
 
   for(const feed of feeds){
     let news=[];
-    try{
-      news=await (await fetch(feed)).json();
-    }catch{continue;}
+    try{ news=await (await fetch(feed)).json(); }catch{continue;}
 
     for(let item of news.slice(0,15)){
       const isPR=item.headline.toLowerCase().includes("announce")||item.headline.toLowerCase().includes("release");
@@ -189,9 +222,10 @@ async function scan(){
       if(!sym || inCooldown(sym)) continue;
 
       const q=await (await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`)).json();
+
       const to=Math.floor(Date.now()/1000);
-      const from=to-3600;
-      const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=1&from=${from}&to=${to}&token=${key}`)).json();
+      const from=to-86400*3;
+      const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&from=${from}&to=${to}&token=${key}`)).json();
       if(candle.s!=="ok") continue;
 
       const v=candle.v;
@@ -218,7 +252,7 @@ async function scan(){
         <span class="star" onclick="toggleFav('${sym}')">${star}</span>
         <h3>${sym} $${q.c.toFixed(2)}</h3>
         <p>${item.headline}</p>
-        <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | PMH Break: ${pmhBreak}</p>
+        <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | Multi-day Break: ${pmhBreak}</p>
         <p>Quality Score: ${score}</p>
         <p>🎯 Entry: ${plan.entry.toFixed(2)} Stop: ${plan.stop} Target: ${plan.target} R:R ${plan.rr}</p>
       `;
@@ -242,6 +276,9 @@ async function scan(){
   if(leaderPick) leaderEl.innerText="🔥 Leader: "+leaderPick.symbol+" ("+leaderPick.score+")";
   statusEl.innerText="Scan complete";
 
+  renderLeaderboard();
+  renderStats();
+
   if(autoTimer) clearInterval(autoTimer);
   autoTimer=setInterval(scan,60000);
 }
@@ -253,6 +290,8 @@ const gainersOnly=document.getElementById("gainersOnly");
 const results=document.getElementById("results");
 const favorites=document.getElementById("favorites");
 const history=document.getElementById("history");
+const leaderboard=document.getElementById("leaderboard");
+const stats=document.getElementById("stats");
 const sessionEl=document.getElementById("session");
 const statusEl=document.getElementById("status");
 const leaderEl=document.getElementById("leader");
@@ -262,6 +301,8 @@ apiKey.value=getKey()||"";
 sessionEl.innerText="Session: "+getSession();
 renderFavs();
 renderHistory();
+renderLeaderboard();
+renderStats();
 </script>
 
 </body>
