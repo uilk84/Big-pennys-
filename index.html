@@ -2,34 +2,53 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v27.4</title>
+<title>Penny Scanner PRO v27.5</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{font-family:Arial,sans-serif;background:#020617;color:white;text-align:center}
+:root{
+  --bg:#020617; --card:#0f172a; --text:#fff; --accent:#3b82f6;
+}
+.light{
+  --bg:#f3f4f6; --card:#ffffff; --text:#020617; --accent:#2563eb;
+}
+body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);text-align:center;margin:0;padding:10px}
 input,button{padding:10px;border-radius:8px;border:none;margin:5px}
-button{background:#3b82f6;color:white;font-weight:bold}
-.card{background:#0f172a;margin:10px;padding:12px;border-radius:12px;text-align:left}
+button{background:var(--accent);color:white;font-weight:bold}
+.card{background:var(--card);margin:10px;padding:12px;border-radius:12px;text-align:left}
 .hot{border-left:5px solid #22c55e}
 .warm{border-left:5px solid orange}
 .watch{border-left:5px solid #38bdf8}
 #leader{color:#22c55e;font-size:18px}
 #progress{color:#60a5fa}
 small{opacity:.7}
+.settings{background:var(--card);padding:10px;border-radius:12px;margin-bottom:10px}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v27.4</h1>
+<h1>📈 Penny Scanner PRO v27.5</h1>
 
-<input id="finnhubKey" placeholder="Finnhub API Key"/>
+<button onclick="toggleSettings()">⚙️ Settings</button>
+<div id="settings" class="settings" style="display:none">
+
+<input id="finnhubKey" placeholder="Finnhub API Key"/><br>
 <button onclick="saveKey()">Save Key</button><br>
 
-<input id="minVol" type="number" value="5000"/>
+<input id="minVol" type="number" value="5000"/><br>
+
+<label><input type="checkbox" id="autoScan"> Auto Scan</label><br>
+<label><input type="checkbox" id="lightMode"> Light Mode</label><br>
+
+</div>
+
 <button onclick="scan()">Scan Now</button>
-<button onclick="toggleAuto()">Auto Scan</button>
 
 <p id="session"></p>
 <p id="progress"></p>
 <p id="leader"></p>
+
+<h3>🏆 Leaderboard</h3>
+<div id="leaderboard"></div>
 
 <h3>📜 Signal History</h3>
 <div id="history"></div>
@@ -42,22 +61,24 @@ small{opacity:.7}
 </audio>
 
 <script>
-let FINNHUB_KEY = localStorage.getItem("FINNHUB_KEY") || "";
-finnhubKey.value = FINNHUB_KEY;
-
-let autoTimer=null;
-let history=[];
-let cooldown={};
+let FINNHUB_KEY=localStorage.getItem("FINNHUB_KEY")||"";
+let history=[], leaderboard={}, cooldown={}, autoTimer=null;
+let batchIndex=parseInt(localStorage.getItem("batchIndex")||"0");
 
 const TIMEOUT=5000;
-const MAX_NEWS_SYMBOLS=30;
-const MAX_MARKET_SYMBOLS=30;
-
-const MARKET_SYMBOLS=[
-"SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI",
-"PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY",
-"AKTS","MARA","RIOT","PLUG","SNDL","BB","SPCE","NIO","LCID","RIVN"
+const BATCHES=[
+["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI"],
+["PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY"],
+["AKTS","MARA","RIOT","PLUG","SNDL","BB","SPCE","NIO","LCID","RIVN"]
 ];
+
+finnhubKey.value=FINNHUB_KEY;
+lightMode.checked=localStorage.getItem("LIGHT")==="1";
+if(lightMode.checked) document.body.classList.add("light");
+
+function toggleSettings(){
+  settings.style.display = settings.style.display==="none"?"block":"none";
+}
 
 function saveKey(){
   FINNHUB_KEY=finnhubKey.value.trim();
@@ -65,16 +86,24 @@ function saveKey(){
   alert("API key saved");
 }
 
-function toggleAuto(){
-  if(autoTimer){
-    clearInterval(autoTimer);
-    autoTimer=null;
-    alert("Auto Scan OFF");
-  } else {
-    autoTimer=setInterval(scan,60000);
-    alert("Auto Scan ON (60s)");
+lightMode.onchange=()=>{
+  if(lightMode.checked){
+    document.body.classList.add("light");
+    localStorage.setItem("LIGHT","1");
+  }else{
+    document.body.classList.remove("light");
+    localStorage.removeItem("LIGHT");
   }
-}
+};
+
+autoScan.onchange=()=>{
+  if(autoScan.checked){
+    autoTimer=setInterval(scan,60000);
+    Notification.requestPermission();
+  }else{
+    clearInterval(autoTimer);
+  }
+};
 
 function getSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
@@ -85,12 +114,19 @@ function getSession(){
   return "CLOSED";
 }
 
-function score(dp,vol,pmh,news){
+function dailyReset(){
+  const today=new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
+  if(localStorage.getItem("DAY")!==today){
+    localStorage.setItem("DAY",today);
+    history=[]; leaderboard={}; cooldown={};
+  }
+}
+
+function score(dp,vol,pmh){
   let s=0;
   if(dp>5)s+=30; else if(dp>2)s+=15;
   if(vol>50000)s+=20;
   if(pmh)s+=25;
-  if(news)s+=25;
   return s;
 }
 
@@ -102,58 +138,30 @@ function timeoutFetch(url){
 }
 
 async function scan(){
+  dailyReset();
   const session=getSession();
   sessionEl.innerText="Session: "+session;
   progress.innerText="Starting scan...";
   results.innerHTML="";
   leader.innerText="";
 
-  if(!FINNHUB_KEY){
-    alert("Enter Finnhub API key");
-    return;
-  }
+  if(!FINNHUB_KEY){alert("Enter Finnhub API key");return;}
 
-  if(session==="CLOSED"){
-    fetchNewsOnly();
-    return;
-  }
+  let symbols=BATCHES[batchIndex];
+  batchIndex=(batchIndex+1)%BATCHES.length;
+  localStorage.setItem("batchIndex",batchIndex);
 
-  let symbols=new Set();
-  let foundFromNews=false;
+  let html="", best=null, done=0;
 
-  // 1️⃣ Try NEWS symbols
-  try{
-    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
-    news.slice(0,MAX_NEWS_SYMBOLS).forEach(n=>{
-      if(n.related){
-        symbols.add(n.related.split(",")[0]);
-        foundFromNews=true;
-      }
-    });
-  }catch(e){
-    console.log("News failed");
-  }
-
-  // 2️⃣ If none found, use MARKET fallback list
-  if(!foundFromNews){
-    MARKET_SYMBOLS.slice(0,MAX_MARKET_SYMBOLS).forEach(s=>symbols.add(s));
-    progress.innerText="Using market fallback symbols...";
-  }
-
-  const list=[...symbols];
-  let done=0, html="", best=null;
-
-  for(const sym of list){
+  for(const sym of symbols){
     try{
-      progress.innerText=`Scanning ${done+1}/${list.length}...`;
-
+      progress.innerText=`Scanning ${++done}/${symbols.length}...`;
       const d=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`);
-      done++;
 
       if(!d.c||d.c>10||d.v<minVol.value) continue;
 
       const pmh=d.dp>5;
-      const q=score(d.dp,d.v,pmh,foundFromNews);
+      const q=score(d.dp,d.v,pmh);
 
       let status="WATCH";
       if(q>=70) status="HOT";
@@ -161,9 +169,15 @@ async function scan(){
 
       if(status==="HOT"&&!cooldown[sym]){
         alertSound.play();
+        if(Notification.permission==="granted"){
+          new Notification("🔥 HOT Stock",{
+            body:`${sym} ${d.dp.toFixed(2)}%`
+          });
+        }
         cooldown[sym]=Date.now();
       }
 
+      leaderboard[sym]=Math.max(leaderboard[sym]||0,q);
       history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${q}`);
       history=history.slice(0,20);
 
@@ -181,32 +195,24 @@ async function scan(){
 
   if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
   renderHistory();
+  renderLeaderboard();
   progress.innerText="Scan complete";
-  results.innerHTML=html||"No penny stocks found";
+  results.innerHTML=html||"No penny stocks found in this batch";
 }
 
 function renderHistory(){
   historyEl.innerHTML=history.map(x=>`<div class="card watch">${x}</div>`).join("")||"No signals yet";
 }
-
-async function fetchNewsOnly(){
-  try{
-    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
-    results.innerHTML=news.slice(0,10).map(n=>`
-      <div class="card watch">
-        <b>NEWS</b><br>${n.headline}<br>
-        <small>${n.source}</small><br>
-        <a href="${n.url}" target="_blank">📰 Article</a>
-      </div>`).join("");
-    progress.innerText="News loaded";
-  }catch(e){
-    results.innerHTML="News feed error";
-  }
+function renderLeaderboard(){
+  leaderboardEl.innerHTML=Object.entries(leaderboard)
+    .sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(x=>`<div class="card warm">${x[0]} — ${x[1]}</div>`).join("")||"No leaders yet";
 }
 
 const sessionEl=document.getElementById("session");
 const results=document.getElementById("results");
 const historyEl=document.getElementById("history");
+const leaderboardEl=document.getElementById("leaderboard");
 const leader=document.getElementById("leader");
 const progress=document.getElementById("progress");
 const alertSound=document.getElementById("alertSound");
