@@ -2,307 +2,138 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v20</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Penny Scanner PRO v21</title>
 <style>
-:root{--bg:#050b16;--card:#0f1b2d;--text:white;}
-.light{--bg:#f4f4f4;--card:#ffffff;--text:black;}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);text-align:center;}
-h1{margin-top:10px;}
-input,button{padding:10px;border-radius:8px;border:none;font-size:15px;}
-button{background:#2f80ff;color:white;}
-.card{background:var(--card);margin:10px;padding:12px;border-radius:12px;text-align:left;}
-.hot{border-left:5px solid #00ff9c;}
-.warm{border-left:5px solid orange;}
-.watch{border-left:5px solid #5bc0ff;}
-.star{float:right;font-size:20px;cursor:pointer;}
-.status{color:#7fd3ff;margin:4px;}
-.section{margin-top:10px;}
-.small{font-size:13px;opacity:.8;}
+body{
+  margin:0;
+  font-family:Arial,Helvetica,sans-serif;
+  background:#0b1220;
+  color:white;
+  text-align:center;
+}
+h1{margin-top:20px}
+input,button{
+  padding:10px;
+  border-radius:8px;
+  border:none;
+  margin:5px;
+  font-size:16px;
+}
+button{background:#3b82f6;color:white}
+.card{
+  background:#111a2e;
+  margin:12px;
+  padding:12px;
+  border-radius:12px;
+  text-align:left;
+}
+.status{margin:10px;font-weight:bold}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v20</h1>
+<h1>📈 Penny Scanner PRO v21</h1>
 
-<input id="apiKey" placeholder="Finnhub API Key">
-<button onclick="saveKey()">Save</button>
+<input id="apikey" placeholder="Enter Finnhub API Key">
+<button onclick="saveKey()">Save Key</button>
+<br>
 
-<br><br>
-
-<input id="telegram" placeholder="Telegram Webhook (optional)">
-<button onclick="saveTelegram()">Save Telegram</button>
-
-<br><br>
-
-<input id="minVol" value="200000">
+<input id="minvol" value="100000">
 <button onclick="scan()">Scan Now</button>
 
-<div>
-<label><input type="checkbox" id="prOnly"> PR Only</label>
-<label><input type="checkbox" id="gainersOnly"> Top Gainers</label>
-<label><input type="checkbox" onchange="toggleTheme()"> Light Mode</label>
-</div>
-
-<div class="status" id="session"></div>
-<div class="status" id="status"></div>
-<div class="status" id="leader"></div>
-
-<div class="section">
-<h3>🏆 Leaderboard</h3>
-<div id="leaderboard"></div>
-</div>
-
-<div class="section">
-<h3>📊 Stats</h3>
-<div id="stats"></div>
-</div>
-
-<div class="section">
-<h3>⭐ Favorites</h3>
-<div id="favorites"></div>
-</div>
-
-<div class="section">
-<h3>📜 Signal History</h3>
-<div id="history"></div>
-</div>
-
-<hr>
+<div id="session" class="status"></div>
 <div id="results"></div>
 
-<audio id="alertSound">
-<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
-
 <script>
-const KEY_STORE="FINNHUB_KEY_V20";
-const TG_STORE="TG_WEBHOOK_V20";
-const FAV_STORE="FAVS_V20";
-const HIST_STORE="HISTORY_V20";
-const DAY_STORE="DAY_V20";
-const COOLDOWN_MIN=10;
+let API_KEY="";
 
-let autoTimer=null;
-
-function saveKey(){ localStorage.setItem(KEY_STORE, apiKey.value.trim()); alert("API key saved"); }
-function saveTelegram(){ localStorage.setItem(TG_STORE, telegram.value.trim()); alert("Telegram saved"); }
-function getKey(){ return localStorage.getItem(KEY_STORE); }
-function getTG(){ return localStorage.getItem(TG_STORE); }
-
-function toggleTheme(){ document.body.classList.toggle("light"); }
-
-function getFavs(){ return JSON.parse(localStorage.getItem(FAV_STORE)||"[]"); }
-function saveFavs(f){ localStorage.setItem(FAV_STORE,JSON.stringify(f)); renderFavs(); }
-
-function getHistory(){ return JSON.parse(localStorage.getItem(HIST_STORE)||"[]"); }
-function saveHistory(h){ localStorage.setItem(HIST_STORE,JSON.stringify(h)); renderHistory(); }
-
-function getETDate(){
-  return new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
+function saveKey(){
+  API_KEY=document.getElementById("apikey").value.trim();
+  localStorage.setItem("finnhub_key",API_KEY);
+  alert("API Key Saved");
 }
-function dailyReset(){
-  const today=getETDate();
-  const last=localStorage.getItem(DAY_STORE);
-  if(today!==last){
-    localStorage.setItem(DAY_STORE,today);
-    localStorage.removeItem(HIST_STORE);
-  }
-}
+
+API_KEY=localStorage.getItem("finnhub_key")||"";
+document.getElementById("apikey").value=API_KEY;
 
 function getSession(){
-  const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
-  const d=new Date(now); const t=d.getHours()*60+d.getMinutes();
-  if(t>=240&&t<570) return "PRE-MARKET";
-  if(t>=570&&t<=960) return "OPEN";
-  if(t>960&&t<=1200) return "AFTER-HOURS";
+  const now=new Date();
+  const et=new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const t=et.getHours()*60+et.getMinutes();
+
+  if(t>=570 && t<960) return "OPEN";        // 9:30–16:00
+  if(t>=240 && t<570) return "PRE-MARKET";  // 4:00–9:30
+  if(t>=960 && t<1200) return "AFTER-HOURS";// 16:00–20:00
   return "CLOSED";
 }
 
-function sentimentScore(text){
-  text=text.toLowerCase();
-  let score=0;
-  if(text.includes("beat")||text.includes("record")||text.includes("growth")) score+=10;
-  if(text.includes("warn")||text.includes("loss")||text.includes("miss")) score-=10;
-  return score;
-}
-
-function qualityScore(vol,pct,pmhBreak,pr, sentiment){
-  let score=0;
-  if(vol>1000000) score+=30;
-  else if(vol>500000) score+=20;
-  if(pct>5) score+=25;
-  else if(pct>2) score+=15;
-  if(pmhBreak) score+=25;
-  if(pr) score+=10;
-  score+=sentiment;
-  return score;
-}
-
-function tradePlan(price){
-  const entry=price;
-  const stop=(price*0.95).toFixed(2);
-  const target=(price*1.1).toFixed(2);
-  const rr=((target-entry)/(entry-stop)).toFixed(2);
-  return {entry,stop,target,rr};
-}
-
-async function telegramAlert(msg){
-  const url=getTG();
-  if(!url) return;
-  fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:msg})});
-}
-
-function renderFavs(){
-  favorites.innerHTML="";
-  getFavs().forEach(s=>favorites.innerHTML+=`<div class="card watch">⭐ ${s}</div>`);
-}
-
-function renderHistory(){
-  history.innerHTML="";
-  getHistory().slice().reverse().forEach(h=>{
-    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (${h.score})</div>`;
-  });
-}
-
-function renderLeaderboard(){
-  const map={};
-  getHistory().forEach(h=>{
-    if(!map[h.symbol]||h.score>map[h.symbol]) map[h.symbol]=h.score;
-  });
-  leaderboard.innerHTML="";
-  Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5)
-    .forEach(([s,sc])=>leaderboard.innerHTML+=`<div class="card warm">${s} — ${sc}</div>`);
-}
-
-function renderStats(){
-  const h=getHistory();
-  let hot=0,warm=0;
-  h.forEach(x=>{ if(x.score>=80) hot++; else if(x.score>=60) warm++; });
-  stats.innerText=`HOT: ${hot} | WARM: ${warm} | Total: ${h.length}`;
-}
-
-function inCooldown(sym){
-  const h=getHistory().filter(x=>x.symbol===sym);
-  if(!h.length) return false;
-  return (Date.now()-h[h.length-1].ts)/60000 < COOLDOWN_MIN;
-}
-
-function toggleFav(sym){
-  let f=getFavs();
-  if(f.includes(sym)) f=f.filter(x=>x!==sym); else f.push(sym);
-  saveFavs(f);
-  scan();
-}
-
 async function scan(){
-  dailyReset();
-  const key=getKey(); if(!key) return alert("Save API key");
-  const minVol=parseInt(minVol.value)||0;
-  const prOnly=prOnly.checked;
-  const gainersOnly=gainersOnly.checked;
+  if(!API_KEY){
+    alert("Enter API key first");
+    return;
+  }
 
   const session=getSession();
-  sessionEl.innerText="Session: "+session+" | Auto 60s";
-  if(session==="CLOSED"){ statusEl.innerText="Market closed"; return; }
+  document.getElementById("session").innerText=`Session: ${session}`;
+  document.getElementById("results").innerHTML="Loading...";
 
-  statusEl.innerText="Scanning...";
-  results.innerHTML=""; leaderEl.innerText="";
+  if(session==="OPEN"){
+    scanStocks();
+  }else{
+    scanNews();
+  }
+}
 
-  const feeds=[`https://finnhub.io/api/v1/news?category=general&token=${key}`];
-  let leaderPick=null; let alerted=false;
+async function scanNews(){
+  const url=`https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
+  const r=await fetch(url);
+  const data=await r.json();
 
-  for(const feed of feeds){
-    let news=[];
-    try{ news=await (await fetch(feed)).json(); }catch{continue;}
+  let html="";
+  data.slice(0,10).forEach(n=>{
+    html+=`
+      <div class="card">
+        <b>NEWS</b><br>
+        ${n.headline}<br>
+        <small>${n.source}</small><br>
+        <a href="${n.url}" target="_blank" style="color:#60a5fa">Read</a>
+      </div>`;
+  });
 
-    for(let item of news.slice(0,15)){
-      const isPR=item.headline.toLowerCase().includes("announce")||item.headline.toLowerCase().includes("release");
-      if(prOnly && !isPR) continue;
+  document.getElementById("results").innerHTML=html;
+}
 
-      const sym=(item.related||"").split(",")[0];
-      if(!sym || inCooldown(sym)) continue;
+async function scanStocks(){
+  const minVol=parseInt(document.getElementById("minvol").value);
+  const symbols=["AAPL","TSLA","AMD","NVDA","PLTR","SOFI","LCID","F","NIO","RIVN"];
+  let results=[];
 
-      const q=await (await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`)).json();
+  for(const s of symbols){
+    const url=`https://finnhub.io/api/v1/quote?symbol=${s}&token=${API_KEY}`;
+    const r=await fetch(url);
+    const q=await r.json();
 
-      const to=Math.floor(Date.now()/1000);
-      const from=to-86400*3;
-      const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&from=${from}&to=${to}&token=${key}`)).json();
-      if(candle.s!=="ok") continue;
-
-      const vol=candle.v[candle.v.length-1];
-      if(vol<minVol) continue;
-
-      const pct=((q.c-q.pc)/q.pc*100)||0;
-      if(gainersOnly && pct<2) continue;
-
-      const pmh=Math.max(...candle.h);
-      const pmhBreak=q.c>pmh;
-      const sent=sentimentScore(item.headline);
-
-      const score=qualityScore(vol,pct,pmhBreak,isPR,sent);
-      if(score<70) continue;
-
-      const plan=tradePlan(q.c);
-      const star=getFavs().includes(sym)?"⭐":"☆";
-
-      const card=document.createElement("div");
-      card.className="card hot";
-      card.innerHTML=`
-        <span class="star" onclick="toggleFav('${sym}')">${star}</span>
-        <h3>${sym} $${q.c.toFixed(2)}</h3>
-        <p>${item.headline}</p>
-        <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | Multi-day Break: ${pmhBreak}</p>
-        <p>Sentiment: ${sent>=0?"Bullish":"Bearish"} | Score: ${score}</p>
-        <p>🎯 Entry ${plan.entry.toFixed(2)} Stop ${plan.stop} Target ${plan.target} R:R ${plan.rr}</p>
-      `;
-      results.appendChild(card);
-
-      const time=new Date().toLocaleTimeString();
-      const hist=getHistory();
-      hist.push({symbol:sym,score,time,ts:Date.now()});
-      saveHistory(hist);
-
-      if(!leaderPick||score>leaderPick.score) leaderPick={symbol:sym,score};
-
-      if(!alerted){
-        alertSound.play();
-        alert("HOT STOCK: "+sym);
-        telegramAlert("🔥 HOT STOCK: "+sym+" Score "+score);
-        alerted=true;
-      }
+    if(q.c && q.v>=minVol && q.c<10){
+      results.push({s,price:q.c,vol:q.v});
     }
   }
 
-  if(leaderPick) leaderEl.innerText="🔥 Leader: "+leaderPick.symbol+" ("+leaderPick.score+")";
-  statusEl.innerText="Scan complete";
+  if(results.length===0){
+    document.getElementById("results").innerHTML="No penny stocks found.";
+    return;
+  }
 
-  renderLeaderboard();
-  renderStats();
+  let html="";
+  results.forEach(x=>{
+    html+=`
+      <div class="card">
+        <b>${x.s} $${x.price}</b><br>
+        Vol: ${x.vol}
+      </div>`;
+  });
 
-  if(autoTimer) clearInterval(autoTimer);
-  autoTimer=setInterval(scan,60000);
+  document.getElementById("results").innerHTML=html;
 }
-
-const apiKey=document.getElementById("apiKey");
-const telegram=document.getElementById("telegram");
-const minVol=document.getElementById("minVol");
-const prOnly=document.getElementById("prOnly");
-const gainersOnly=document.getElementById("gainersOnly");
-const results=document.getElementById("results");
-const favorites=document.getElementById("favorites");
-const history=document.getElementById("history");
-const leaderboard=document.getElementById("leaderboard");
-const stats=document.getElementById("stats");
-const sessionEl=document.getElementById("session");
-const statusEl=document.getElementById("status");
-const leaderEl=document.getElementById("leader");
-const alertSound=document.getElementById("alertSound");
-
-apiKey.value=getKey()||"";
-telegram.value=getTG()||"";
-sessionEl.innerText="Session: "+getSession();
-renderFavs(); renderHistory(); renderLeaderboard(); renderStats();
 </script>
 
 </body>
