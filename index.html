@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v19</title>
+<title>Penny Scanner PRO v20</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 :root{--bg:#050b16;--card:#0f1b2d;--text:white;}
@@ -17,17 +17,21 @@ button{background:#2f80ff;color:white;}
 .watch{border-left:5px solid #5bc0ff;}
 .star{float:right;font-size:20px;cursor:pointer;}
 .status{color:#7fd3ff;margin:4px;}
-a{color:#4db7ff;}
 .section{margin-top:10px;}
 .small{font-size:13px;opacity:.8;}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v19</h1>
+<h1>📈 Penny Scanner PRO v20</h1>
 
 <input id="apiKey" placeholder="Finnhub API Key">
 <button onclick="saveKey()">Save</button>
+
+<br><br>
+
+<input id="telegram" placeholder="Telegram Webhook (optional)">
+<button onclick="saveTelegram()">Save Telegram</button>
 
 <br><br>
 
@@ -45,12 +49,12 @@ a{color:#4db7ff;}
 <div class="status" id="leader"></div>
 
 <div class="section">
-<h3>🏆 Leaderboard (Top Scores Today)</h3>
+<h3>🏆 Leaderboard</h3>
 <div id="leaderboard"></div>
 </div>
 
 <div class="section">
-<h3>📊 Performance Today</h3>
+<h3>📊 Stats</h3>
 <div id="stats"></div>
 </div>
 
@@ -72,26 +76,27 @@ a{color:#4db7ff;}
 </audio>
 
 <script>
-const KEY_STORE="FINNHUB_KEY_V19";
-const FAV_STORE="FAVS_V19";
-const HIST_STORE="HISTORY_V19";
-const DAY_STORE="DAY_V19";
+const KEY_STORE="FINNHUB_KEY_V20";
+const TG_STORE="TG_WEBHOOK_V20";
+const FAV_STORE="FAVS_V20";
+const HIST_STORE="HISTORY_V20";
+const DAY_STORE="DAY_V20";
 const COOLDOWN_MIN=10;
 
 let autoTimer=null;
 
-function saveKey(){
-  const k=apiKey.value.trim();
-  if(!k) return alert("Paste API key");
-  localStorage.setItem(KEY_STORE,k);
-  alert("Saved");
-}
-function getKey(){return localStorage.getItem(KEY_STORE);}
-function getFavs(){return JSON.parse(localStorage.getItem(FAV_STORE)||"[]");}
-function saveFavs(f){localStorage.setItem(FAV_STORE,JSON.stringify(f));renderFavs();}
-function getHistory(){return JSON.parse(localStorage.getItem(HIST_STORE)||"[]");}
-function saveHistory(h){localStorage.setItem(HIST_STORE,JSON.stringify(h));renderHistory();}
-function toggleTheme(){document.body.classList.toggle("light");}
+function saveKey(){ localStorage.setItem(KEY_STORE, apiKey.value.trim()); alert("API key saved"); }
+function saveTelegram(){ localStorage.setItem(TG_STORE, telegram.value.trim()); alert("Telegram saved"); }
+function getKey(){ return localStorage.getItem(KEY_STORE); }
+function getTG(){ return localStorage.getItem(TG_STORE); }
+
+function toggleTheme(){ document.body.classList.toggle("light"); }
+
+function getFavs(){ return JSON.parse(localStorage.getItem(FAV_STORE)||"[]"); }
+function saveFavs(f){ localStorage.setItem(FAV_STORE,JSON.stringify(f)); renderFavs(); }
+
+function getHistory(){ return JSON.parse(localStorage.getItem(HIST_STORE)||"[]"); }
+function saveHistory(h){ localStorage.setItem(HIST_STORE,JSON.stringify(h)); renderHistory(); }
 
 function getETDate(){
   return new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
@@ -107,21 +112,30 @@ function dailyReset(){
 
 function getSession(){
   const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
-  const d=new Date(now);const t=d.getHours()*60+d.getMinutes();
+  const d=new Date(now); const t=d.getHours()*60+d.getMinutes();
   if(t>=240&&t<570) return "PRE-MARKET";
   if(t>=570&&t<=960) return "OPEN";
   if(t>960&&t<=1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function qualityScore(vol,pct,pmhBreak,pr){
+function sentimentScore(text){
+  text=text.toLowerCase();
   let score=0;
-  if(vol>1000000) score+=35;
+  if(text.includes("beat")||text.includes("record")||text.includes("growth")) score+=10;
+  if(text.includes("warn")||text.includes("loss")||text.includes("miss")) score-=10;
+  return score;
+}
+
+function qualityScore(vol,pct,pmhBreak,pr, sentiment){
+  let score=0;
+  if(vol>1000000) score+=30;
   else if(vol>500000) score+=20;
   if(pct>5) score+=25;
   else if(pct>2) score+=15;
   if(pmhBreak) score+=25;
-  if(pr) score+=15;
+  if(pr) score+=10;
+  score+=sentiment;
   return score;
 }
 
@@ -133,55 +147,52 @@ function tradePlan(price){
   return {entry,stop,target,rr};
 }
 
+async function telegramAlert(msg){
+  const url=getTG();
+  if(!url) return;
+  fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:msg})});
+}
+
 function renderFavs(){
   favorites.innerHTML="";
-  getFavs().forEach(s=>{
-    favorites.innerHTML+=`<div class="card watch">⭐ ${s}</div>`;
-  });
+  getFavs().forEach(s=>favorites.innerHTML+=`<div class="card watch">⭐ ${s}</div>`);
 }
+
 function renderHistory(){
   history.innerHTML="";
   getHistory().slice().reverse().forEach(h=>{
-    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (Score ${h.score})</div>`;
-  });
-}
-function renderLeaderboard(){
-  const hist=getHistory();
-  const map={};
-  hist.forEach(h=>{
-    if(!map[h.symbol] || h.score>map[h.symbol]) map[h.symbol]=h.score;
-  });
-  const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  leaderboard.innerHTML="";
-  sorted.forEach(([sym,score])=>{
-    leaderboard.innerHTML+=`<div class="card warm">${sym} — ${score}</div>`;
+    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (${h.score})</div>`;
   });
 }
 
-function renderStats(){
-  const hist=getHistory();
-  let hot=0,warm=0;
-  hist.forEach(h=>{
-    if(h.score>=80) hot++;
-    else if(h.score>=60) warm++;
+function renderLeaderboard(){
+  const map={};
+  getHistory().forEach(h=>{
+    if(!map[h.symbol]||h.score>map[h.symbol]) map[h.symbol]=h.score;
   });
-  stats.innerHTML=`HOT: ${hot} | WARM: ${warm} | Total signals: ${hist.length}`;
+  leaderboard.innerHTML="";
+  Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .forEach(([s,sc])=>leaderboard.innerHTML+=`<div class="card warm">${s} — ${sc}</div>`);
+}
+
+function renderStats(){
+  const h=getHistory();
+  let hot=0,warm=0;
+  h.forEach(x=>{ if(x.score>=80) hot++; else if(x.score>=60) warm++; });
+  stats.innerText=`HOT: ${hot} | WARM: ${warm} | Total: ${h.length}`;
+}
+
+function inCooldown(sym){
+  const h=getHistory().filter(x=>x.symbol===sym);
+  if(!h.length) return false;
+  return (Date.now()-h[h.length-1].ts)/60000 < COOLDOWN_MIN;
 }
 
 function toggleFav(sym){
   let f=getFavs();
-  if(f.includes(sym)) f=f.filter(x=>x!==sym);
-  else f.push(sym);
+  if(f.includes(sym)) f=f.filter(x=>x!==sym); else f.push(sym);
   saveFavs(f);
   scan();
-}
-
-function inCooldown(sym){
-  const hist=getHistory().filter(h=>h.symbol===sym);
-  if(hist.length===0) return false;
-  const last=new Date(hist[hist.length-1].ts);
-  const diff=(Date.now()-last)/60000;
-  return diff<COOLDOWN_MIN;
 }
 
 async function scan(){
@@ -193,22 +204,13 @@ async function scan(){
 
   const session=getSession();
   sessionEl.innerText="Session: "+session+" | Auto 60s";
+  if(session==="CLOSED"){ statusEl.innerText="Market closed"; return; }
+
   statusEl.innerText="Scanning...";
-  results.innerHTML="";
-  leaderEl.innerText="";
+  results.innerHTML=""; leaderEl.innerText="";
 
-  if(session==="CLOSED"){
-    statusEl.innerText="Market closed — waiting for pre-market";
-    return;
-  }
-
-  const feeds=[
-    `https://finnhub.io/api/v1/news?category=general&token=${key}`,
-    `https://finnhub.io/api/v1/news?category=forex&token=${key}`
-  ];
-
-  let leaderPick=null;
-  let alerted=false;
+  const feeds=[`https://finnhub.io/api/v1/news?category=general&token=${key}`];
+  let leaderPick=null; let alerted=false;
 
   for(const feed of feeds){
     let news=[];
@@ -228,9 +230,7 @@ async function scan(){
       const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&from=${from}&to=${to}&token=${key}`)).json();
       if(candle.s!=="ok") continue;
 
-      const v=candle.v;
-      if(v.length<2) continue;
-      const vol=v[v.length-1];
+      const vol=candle.v[candle.v.length-1];
       if(vol<minVol) continue;
 
       const pct=((q.c-q.pc)/q.pc*100)||0;
@@ -238,13 +238,13 @@ async function scan(){
 
       const pmh=Math.max(...candle.h);
       const pmhBreak=q.c>pmh;
+      const sent=sentimentScore(item.headline);
 
-      const score=qualityScore(vol,pct,pmhBreak,isPR);
+      const score=qualityScore(vol,pct,pmhBreak,isPR,sent);
       if(score<70) continue;
 
       const plan=tradePlan(q.c);
-      const favs=getFavs();
-      const star=favs.includes(sym)?"⭐":"☆";
+      const star=getFavs().includes(sym)?"⭐":"☆";
 
       const card=document.createElement("div");
       card.className="card hot";
@@ -253,8 +253,8 @@ async function scan(){
         <h3>${sym} $${q.c.toFixed(2)}</h3>
         <p>${item.headline}</p>
         <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | Multi-day Break: ${pmhBreak}</p>
-        <p>Quality Score: ${score}</p>
-        <p>🎯 Entry: ${plan.entry.toFixed(2)} Stop: ${plan.stop} Target: ${plan.target} R:R ${plan.rr}</p>
+        <p>Sentiment: ${sent>=0?"Bullish":"Bearish"} | Score: ${score}</p>
+        <p>🎯 Entry ${plan.entry.toFixed(2)} Stop ${plan.stop} Target ${plan.target} R:R ${plan.rr}</p>
       `;
       results.appendChild(card);
 
@@ -268,6 +268,7 @@ async function scan(){
       if(!alerted){
         alertSound.play();
         alert("HOT STOCK: "+sym);
+        telegramAlert("🔥 HOT STOCK: "+sym+" Score "+score);
         alerted=true;
       }
     }
@@ -284,6 +285,7 @@ async function scan(){
 }
 
 const apiKey=document.getElementById("apiKey");
+const telegram=document.getElementById("telegram");
 const minVol=document.getElementById("minVol");
 const prOnly=document.getElementById("prOnly");
 const gainersOnly=document.getElementById("gainersOnly");
@@ -298,11 +300,9 @@ const leaderEl=document.getElementById("leader");
 const alertSound=document.getElementById("alertSound");
 
 apiKey.value=getKey()||"";
+telegram.value=getTG()||"";
 sessionEl.innerText="Session: "+getSession();
-renderFavs();
-renderHistory();
-renderLeaderboard();
-renderStats();
+renderFavs(); renderHistory(); renderLeaderboard(); renderStats();
 </script>
 
 </body>
