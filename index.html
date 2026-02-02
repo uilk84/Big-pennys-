@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v17</title>
+<title>Penny Scanner PRO v18</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 :root{--bg:#050b16;--card:#0f1b2d;--text:white;}
@@ -11,26 +11,22 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background
 h1{margin-top:10px;}
 input,button{padding:10px;border-radius:8px;border:none;font-size:15px;}
 button{background:#2f80ff;color:white;}
-.card{background:var(--card);margin:12px;padding:12px;border-radius:12px;text-align:left;}
+.card{background:var(--card);margin:10px;padding:12px;border-radius:12px;text-align:left;}
 .hot{border-left:5px solid #00ff9c;}
 .warm{border-left:5px solid orange;}
 .watch{border-left:5px solid #5bc0ff;}
 .star{float:right;font-size:20px;cursor:pointer;}
 .status{color:#7fd3ff;margin:4px;}
 a{color:#4db7ff;}
+.section{margin-top:10px;}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v17</h1>
+<h1>📈 Penny Scanner PRO v18</h1>
 
 <input id="apiKey" placeholder="Finnhub API Key">
 <button onclick="saveKey()">Save</button>
-
-<br><br>
-
-<input id="telegram" placeholder="Telegram Webhook (optional)">
-<button onclick="saveTelegram()">Save Telegram</button>
 
 <br><br>
 
@@ -40,15 +36,22 @@ a{color:#4db7ff;}
 <div>
 <label><input type="checkbox" id="prOnly"> PR Only</label>
 <label><input type="checkbox" id="gainersOnly"> Top Gainers</label>
-<label><input type="checkbox" id="themeToggle" onchange="toggleTheme()"> Light Mode</label>
+<label><input type="checkbox" onchange="toggleTheme()"> Light Mode</label>
 </div>
 
 <div class="status" id="session"></div>
 <div class="status" id="status"></div>
 <div class="status" id="leader"></div>
 
+<div class="section">
 <h3>⭐ Favorites</h3>
 <div id="favorites"></div>
+</div>
+
+<div class="section">
+<h3>📜 Today’s Signals</h3>
+<div id="history"></div>
+</div>
 
 <hr>
 <div id="results"></div>
@@ -58,9 +61,11 @@ a{color:#4db7ff;}
 </audio>
 
 <script>
-const KEY_STORE="FINNHUB_KEY_V17";
-const FAV_STORE="FAVS_V17";
-const TG_STORE="TG_WEBHOOK";
+const KEY_STORE="FINNHUB_KEY_V18";
+const FAV_STORE="FAVS_V18";
+const HIST_STORE="HISTORY_V18";
+const DAY_STORE="DAY_V18";
+const COOLDOWN_MIN=10;
 let autoTimer=null;
 
 function saveKey(){
@@ -69,14 +74,24 @@ function saveKey(){
   localStorage.setItem(KEY_STORE,k);
   alert("Saved");
 }
-function saveTelegram(){
-  localStorage.setItem(TG_STORE,telegram.value.trim());
-  alert("Telegram saved");
-}
 function getKey(){return localStorage.getItem(KEY_STORE);}
 function getFavs(){return JSON.parse(localStorage.getItem(FAV_STORE)||"[]");}
 function saveFavs(f){localStorage.setItem(FAV_STORE,JSON.stringify(f));renderFavs();}
+function getHistory(){return JSON.parse(localStorage.getItem(HIST_STORE)||"[]");}
+function saveHistory(h){localStorage.setItem(HIST_STORE,JSON.stringify(h));renderHistory();}
 function toggleTheme(){document.body.classList.toggle("light");}
+
+function getETDate(){
+  return new Date().toLocaleDateString("en-US",{timeZone:"America/New_York"});
+}
+function dailyReset(){
+  const today=getETDate();
+  const last=localStorage.getItem(DAY_STORE);
+  if(today!==last){
+    localStorage.setItem(DAY_STORE,today);
+    localStorage.removeItem(HIST_STORE);
+  }
+}
 
 function getSession(){
   const now=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
@@ -87,20 +102,21 @@ function getSession(){
   return "CLOSED";
 }
 
-function qualityScore(vol,pct,pmhBreak){
+function qualityScore(vol,pct,pmhBreak,pr){
   let score=0;
   if(vol>1000000) score+=40;
   else if(vol>500000) score+=25;
-  if(pct>5) score+=25;
+  if(pct>5) score+=30;
   else if(pct>2) score+=15;
   if(pmhBreak) score+=20;
+  if(pr) score+=10;
   return score;
 }
 
 function tradePlan(price){
   const entry=price;
   const stop=(price*0.95).toFixed(2);
-  const target=(price*1.10).toFixed(2);
+  const target=(price*1.1).toFixed(2);
   const rr=((target-entry)/(entry-stop)).toFixed(2);
   return {entry,stop,target,rr};
 }
@@ -111,7 +127,12 @@ function renderFavs(){
     favorites.innerHTML+=`<div class="card watch">⭐ ${s}</div>`;
   });
 }
-
+function renderHistory(){
+  history.innerHTML="";
+  getHistory().forEach(h=>{
+    history.innerHTML+=`<div class="card watch">${h.time} ${h.symbol} (${h.score})</div>`;
+  });
+}
 function toggleFav(sym){
   let f=getFavs();
   if(f.includes(sym)) f=f.filter(x=>x!==sym);
@@ -120,22 +141,31 @@ function toggleFav(sym){
   scan();
 }
 
-async function telegramAlert(msg){
-  const url=localStorage.getItem(TG_STORE);
-  if(!url) return;
-  fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:msg})});
+function inCooldown(sym){
+  const hist=getHistory().filter(h=>h.symbol===sym);
+  if(hist.length===0) return false;
+  const last=new Date(hist[hist.length-1].ts);
+  const diff=(Date.now()-last)/60000;
+  return diff<COOLDOWN_MIN;
 }
 
 async function scan(){
+  dailyReset();
   const key=getKey(); if(!key) return alert("Save API key");
   const minVol=parseInt(minVol.value)||0;
-  const prOnly=prOnlyBox.checked;
-  const gainersOnly=gainersOnlyBox.checked;
+  const prOnly=prOnly.checked;
+  const gainersOnly=gainersOnly.checked;
 
-  session.innerText="Session: "+getSession()+" | Auto 60s";
-  status.innerText="Scanning feeds...";
+  const session=getSession();
+  sessionEl.innerText="Session: "+session+" | Auto 60s";
+  statusEl.innerText="Scanning...";
   results.innerHTML="";
-  leader.innerText="";
+  leaderEl.innerText="";
+
+  if(session==="CLOSED"){
+    statusEl.innerText="Market closed — waiting for pre-market";
+    return;
+  }
 
   const feeds=[
     `https://finnhub.io/api/v1/news?category=general&token=${key}`,
@@ -143,77 +173,95 @@ async function scan(){
   ];
 
   let leaderPick=null;
-  let hotAlerted=false;
+  let alerted=false;
 
   for(const feed of feeds){
-    const news=await (await fetch(feed)).json();
+    let news=[];
+    try{
+      news=await (await fetch(feed)).json();
+    }catch{continue;}
 
     for(let item of news.slice(0,15)){
-      if(prOnly && !item.headline.toLowerCase().includes("announce")) continue;
+      const isPR=item.headline.toLowerCase().includes("announce")||item.headline.toLowerCase().includes("release");
+      if(prOnly && !isPR) continue;
+
       const sym=(item.related||"").split(",")[0];
-      if(!sym) continue;
+      if(!sym || inCooldown(sym)) continue;
 
       const q=await (await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`)).json();
-
       const to=Math.floor(Date.now()/1000);
       const from=to-3600;
       const candle=await (await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=1&from=${from}&to=${to}&token=${key}`)).json();
-
       if(candle.s!=="ok") continue;
+
       const v=candle.v;
       if(v.length<2) continue;
-
       const vol=v[v.length-1];
-      const prev=v[v.length-2];
-      const pmh=Math.max(...candle.h);
-      const pmhBreak=q.c>pmh;
-
       if(vol<minVol) continue;
 
       const pct=((q.c-q.pc)/q.pc*100)||0;
       if(gainersOnly && pct<2) continue;
 
-      const score=qualityScore(vol,pct,pmhBreak);
-      const statusType=score>70?"HOT":score>40?"WARM":"WATCH";
+      const pmh=Math.max(...candle.h);
+      const pmhBreak=q.c>pmh;
 
-      if(!leaderPick||score>leaderPick.score) leaderPick={symbol:sym,score};
-
-      if(statusType==="HOT" && !hotAlerted){
-        alertSound.play();
-        alert("HOT STOCK: "+sym);
-        telegramAlert("🔥 HOT STOCK: "+sym+" Score:"+score);
-        hotAlerted=true;
-      }
+      const score=qualityScore(vol,pct,pmhBreak,isPR);
+      if(score<70) continue;
 
       const plan=tradePlan(q.c);
       const favs=getFavs();
       const star=favs.includes(sym)?"⭐":"☆";
 
       const card=document.createElement("div");
-      card.className="card "+(statusType==="HOT"?"hot":statusType==="WARM"?"warm":"watch");
+      card.className="card hot";
       card.innerHTML=`
         <span class="star" onclick="toggleFav('${sym}')">${star}</span>
         <h3>${sym} $${q.c.toFixed(2)}</h3>
         <p>${item.headline}</p>
         <p>Vol: ${vol.toLocaleString()} | ${pct.toFixed(2)}% | PMH Break: ${pmhBreak}</p>
         <p>Quality Score: ${score}</p>
-        <p>🎯 Entry: ${plan.entry.toFixed(2)} | Stop: ${plan.stop} | Target: ${plan.target} | R:R ${plan.rr}</p>
+        <p>🎯 Entry: ${plan.entry.toFixed(2)} Stop: ${plan.stop} Target: ${plan.target} R:R ${plan.rr}</p>
       `;
       results.appendChild(card);
+
+      const time=new Date().toLocaleTimeString();
+      const hist=getHistory();
+      hist.push({symbol:sym,score,time,ts:Date.now()});
+      saveHistory(hist);
+
+      if(!leaderPick||score>leaderPick.score) leaderPick={symbol:sym,score};
+
+      if(!alerted){
+        alertSound.play();
+        alert("HOT STOCK: "+sym);
+        alerted=true;
+      }
     }
   }
 
-  status.innerText="Scan complete";
-  if(leaderPick) leader.innerText="🔥 Leader: "+leaderPick.symbol+" (Score "+leaderPick.score+")";
+  if(leaderPick) leaderEl.innerText="🔥 Leader: "+leaderPick.symbol+" ("+leaderPick.score+")";
+  statusEl.innerText="Scan complete";
 
   if(autoTimer) clearInterval(autoTimer);
   autoTimer=setInterval(scan,60000);
 }
 
+const apiKey=document.getElementById("apiKey");
+const minVol=document.getElementById("minVol");
+const prOnly=document.getElementById("prOnly");
+const gainersOnly=document.getElementById("gainersOnly");
+const results=document.getElementById("results");
+const favorites=document.getElementById("favorites");
+const history=document.getElementById("history");
+const sessionEl=document.getElementById("session");
+const statusEl=document.getElementById("status");
+const leaderEl=document.getElementById("leader");
+const alertSound=document.getElementById("alertSound");
+
 apiKey.value=getKey()||"";
-telegram.value=localStorage.getItem(TG_STORE)||"";
-session.innerText="Session: "+getSession();
+sessionEl.innerText="Session: "+getSession();
 renderFavs();
+renderHistory();
 </script>
 
 </body>
