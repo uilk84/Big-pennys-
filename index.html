@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v33</title>
+<title>Penny Scanner PRO v34</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -12,12 +12,14 @@ button{background:#3b82f6;color:white;font-weight:bold}
 .hot{border-left:5px solid #22c55e}
 .warm{border-left:5px solid orange}
 .watch{border-left:5px solid #38bdf8}
-#progress{color:#60a5fa}
+#progressText{color:#60a5fa}
+progress{width:90%;height:20px}
+.toggle{font-size:14px}
 </style>
 </head>
 <body>
 
-<h2>📈 Penny Scanner PRO v33 (Ultra Stable)</h2>
+<h2>📈 Penny Scanner PRO v34</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -29,11 +31,16 @@ button{background:#3b82f6;color:white;font-weight:bold}
 
 <input id="minVol" type="number" value="5000"><br>
 
+<label class="toggle">
+<input type="checkbox" id="soundToggle" checked> 🔔 Sound Alerts
+</label><br>
+
 <button onclick="saveSettings()">Save Settings</button>
 <button onclick="scan()">Scan Now</button>
 
 <p id="session"></p>
-<p id="progress"></p>
+<progress id="progressBar" value="0" max="100"></progress>
+<p id="progressText"></p>
 <p id="leader"></p>
 
 <h3>Results</h3>
@@ -59,24 +66,35 @@ let cooldown={};
 apiKey.value=localStorage.getItem("APIKEY")||"";
 pricePreset.value=localStorage.getItem("PRICE")||10;
 minVol.value=localStorage.getItem("MINVOL")||5000;
+soundToggle.checked = localStorage.getItem("SOUND")!=="0";
 
 function saveSettings(){
   localStorage.setItem("APIKEY",apiKey.value);
   localStorage.setItem("PRICE",pricePreset.value);
   localStorage.setItem("MINVOL",minVol.value);
+  localStorage.setItem("SOUND",soundToggle.checked?"1":"0");
   alert("Saved");
+}
+
+// Daily reset
+function dailyReset(){
+  const today=new Date().toLocaleDateString("en-US");
+  if(localStorage.getItem("DAY")!==today){
+    localStorage.setItem("DAY",today);
+    history=[];
+  }
 }
 
 function getSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t=d.getHours()*60+d.getMinutes();
-  if(t>=240&&t<570) return "PRE";
+  if(t>=240&&t<570) return "PRE-MARKET";
   if(t>=570&&t<960) return "OPEN";
-  if(t>=960&&t<1200) return "AFTER";
+  if(t>=960&&t<1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-function timeoutFetch(url,ms=5000){
+function timeoutFetch(url,ms=4000){
   return Promise.race([
     fetch(url).then(r=>r.json()),
     new Promise((_,rej)=>setTimeout(()=>rej("timeout"),ms))
@@ -84,7 +102,7 @@ function timeoutFetch(url,ms=5000){
 }
 
 function calcRSI(arr){
-  if(!arr || arr.length<2) return 50;
+  if(!arr||arr.length<2) return 50;
   let gains=0,losses=0;
   for(let i=1;i<arr.length;i++){
     let d=arr[i]-arr[i-1];
@@ -95,10 +113,12 @@ function calcRSI(arr){
 }
 
 async function scan(){
+  dailyReset();
   results.innerHTML="";
   leader.innerText="";
   historyEl.innerHTML="";
-  progress.innerText="Starting scan...";
+  progressText.innerText="Starting scan...";
+  progressBar.value=0;
 
   const key=apiKey.value.trim();
   if(!key){alert("Enter API key");return;}
@@ -109,11 +129,10 @@ async function scan(){
   sessionEl.innerText="Session: "+session;
 
   let symbols=[];
-  progress.innerText="Loading symbols...";
 
-  // Try news feed, fallback if it fails
+  // Try news feed first
   try{
-    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`,4000);
+    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
     news.slice(0,15).forEach(n=>{
       if(n.related) symbols.push(n.related.split(",")[0]);
     });
@@ -129,17 +148,18 @@ async function scan(){
 
   for(const sym of symbols){
     done++;
-    progress.innerText=`Scanning ${done}/${symbols.length}: ${sym}`;
+    progressBar.value = Math.round((done/symbols.length)*100);
+    progressText.innerText=`Scanning ${done}/${symbols.length}: ${sym}`;
 
     try{
-      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`,4000);
-      if(!q || !q.c) continue;
+      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+      if(!q||!q.c) continue;
       if(q.c>pricePreset.value || q.v<minVol.value) continue;
 
       let rsi=50;
       try{
-        const c=await timeoutFetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&count=14&token=${key}`,4000);
-        rsi = calcRSI(c.c);
+        const c=await timeoutFetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&count=14&token=${key}`);
+        rsi=calcRSI(c.c);
       }catch(e){}
 
       const pmh=q.dp>5;
@@ -148,14 +168,16 @@ async function scan(){
       if(q.dp>3) score+=30;
       if(q.v>50000) score+=20;
       if(pmh) score+=30;
-      if(rsi>60 && rsi<80) score+=20;
+      if(rsi>60&&rsi<80) score+=20;
 
       let status="watch";
       if(score>=70) status="hot";
       else if(score>=50) status="warm";
 
       if(status==="hot" && !cooldown[sym]){
-        alertSound.play();
+        if(soundToggle.checked){
+          alertSound.play();
+        }
         if(Notification.permission==="granted"){
           new Notification("🔥 HOT STOCK",{body:`${sym} ${q.dp.toFixed(2)}%`});
         }
@@ -183,14 +205,15 @@ async function scan(){
   if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
   results.innerHTML=html || "No penny stocks found";
   historyEl.innerHTML=history.map(x=>`<div class="card">${x}</div>`).join("");
-  progress.innerText="Scan complete";
+  progressText.innerText="Scan complete";
 }
 
 const sessionEl=document.getElementById("session");
 const results=document.getElementById("results");
 const historyEl=document.getElementById("history");
 const leader=document.getElementById("leader");
-const progress=document.getElementById("progress");
+const progressText=document.getElementById("progressText");
+const progressBar=document.getElementById("progressBar");
 </script>
 
 </body>
