@@ -1,222 +1,136 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penny Scanner PRO — with checkboxes</title>
+<meta charset="UTF-8">
+<title>Penny Scanner PRO v21</title>
 <style>
-  :root{
-    --bg:#071024; --card:#0f1b2a; --muted:#9aa6b2; --accent:#3b82f6; --ok:#22c55e;
-  }
-  .light { --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#2563eb; --ok:#059669; color:#071024; }
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:white;min-height:100vh}
-  .wrap{max-width:820px;margin:18px auto;padding:0 14px}
-  h1{margin:0 0 12px;font-size:20px;text-align:center}
-  .row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:8px}
-  input[type=text], input[type=number]{padding:10px;border-radius:10px;border:0;background:rgba(255,255,255,0.03);min-width:160px;color:inherit}
-  button{padding:10px 12px;border-radius:10px;border:0;background:var(--accent);color:white}
-  label{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
-  .card{background:var(--card);border-radius:12px;padding:14px;margin:12px 0}
-  .status{margin:10px 0;text-align:center;color:var(--muted)}
-  a.link{color:var(--accent);text-decoration:underline}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-  .small{font-size:13px;color:var(--muted)}
-  .grid{display:grid;grid-template-columns:1fr;gap:8px}
-  @media(min-width:720px){ .grid{grid-template-columns:1fr 1fr} }
+body {
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg,#020617,#020b2d);
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+input, button {
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  margin: 5px;
+}
+button {
+  background: #3b82f6;
+  color: white;
+}
+.card {
+  background:#0f172a;
+  padding:15px;
+  border-radius:12px;
+  margin:12px auto;
+  max-width:500px;
+  text-align:left;
+  box-shadow:0 0 10px rgba(0,0,0,.5);
+}
+.hot {border-left:6px solid #22c55e;}
+.warm {border-left:6px solid #facc15;}
+.watch {border-left:6px solid #38bdf8;}
 </style>
 </head>
 <body>
-<div class="wrap" id="wrap">
-  <h1>📈 Penny Scanner PRO — with controls</h1>
 
-  <div class="row">
-    <input id="apikey" type="text" placeholder="Finnhub API key (save)" />
-    <button id="saveKeyBtn">Save Key</button>
-  </div>
+<h1>📈 Penny Scanner PRO v21</h1>
 
-  <div class="row">
-    <input id="minvol" type="number" value="100000" />
-    <button id="scanBtn">Scan Now</button>
-  </div>
+<input id="apikey" placeholder="Finnhub API key">
+<button id="saveKeyBtn">Save Key</button>
+<br>
 
-  <div class="row controls">
-    <label><input id="cb-pr" type="checkbox" /> PR Only</label>
-    <label><input id="cb-gainers" type="checkbox" /> Top Gainers</label>
-    <label><input id="cb-prefetch" type="checkbox" /> Prefetch Quotes</label>
-    <label><input id="cb-light" type="checkbox" /> Light Mode</label>
-  </div>
+<input id="minvol" type="number" value="100000">
+<button id="scanBtn">Scan Now</button>
 
-  <div id="session" class="status small">Session: —</div>
+<br><br>
 
-  <div id="results"></div>
+<label><input type="checkbox" id="prOnly"> PR Only</label>
+<label><input type="checkbox" id="topGainers"> Top Gainers</label>
+<label><input type="checkbox" id="lightMode"> Light Mode</label>
 
-  <div id="footer" class="small" style="text-align:center;margin-top:18px;color:var(--muted)">
-    Built for mobile — session logic + news fallback
-  </div>
-</div>
+<h3 id="session">Session: --</h3>
+
+<div id="results"></div>
 
 <script>
-/* ---------- Config / symbol lists ---------- */
-const PR_SYMBOLS = ["TWG","SMOVE","DRCT","TRUE"]; // your PR/dev list
-const GAINERS_SYMBOLS = ["AAPL","TSLA","NVDA","AMD","PLTR"]; // small sample top-gainers
-const DEFAULT_SYMBOLS = ["AAPL","TSLA","AMD","NVDA","PLTR","SOFI","LCID","F","NIO","RIVN","PLUG","SNDL"]; // fallback
+document.addEventListener("DOMContentLoaded", () => {
 
-/* ---------- Helpers ---------- */
-const $ = id=>document.getElementById(id);
-const setSmall = txt=> $("session").innerText = txt;
+const $ = id => document.getElementById(id);
 
-function loadSaved(){
-  const key = localStorage.getItem("finnhub_key") || "";
-  $("apikey").value = key;
-  const light = localStorage.getItem("ps_light") === "1";
-  $("cb-light").checked = light;
-  if(light) document.documentElement.classList.add("light");
-}
-loadSaved();
+const API_URL = "https://finnhub.io/api/v1/news?category=general&token=";
 
-/* ---------- session logic (ET) ---------- */
+$("saveKeyBtn").onclick = () => {
+  const key = $("apikey").value.trim();
+  if(!key) return alert("Enter API key");
+  localStorage.setItem("finnhub_key", key);
+  alert("API key saved");
+};
+
+$("scanBtn").onclick = runScan;
+
+const saved = localStorage.getItem("finnhub_key");
+if(saved) $("apikey").value = saved;
+
 function getSession(){
   const now = new Date();
-  // convert to US Eastern by building locale string and reading back
   const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
-  const h = et.getHours(), m = et.getMinutes();
-  const t = h*60 + m;
-  // minutes past midnight ET
-  if(t >= 570 && t < 960) return "OPEN";           // 9:30 - 16:00
-  if(t >= 240 && t < 570) return "PRE-MARKET";     // 4:00 - 9:30
-  if(t >= 960 && t < 1200) return "AFTER-HOURS";   // 16:00 - 20:00
+  const t = et.getHours()*60 + et.getMinutes();
+
+  if(t>=240 && t<570) return "PRE-MARKET";
+  if(t>=570 && t<960) return "OPEN";
+  if(t>=960 && t<1200) return "AFTER-HOURS";
   return "CLOSED";
 }
 
-/* ---------- UI events ---------- */
-$("saveKeyBtn").addEventListener("click", ()=>{
-  const k = $("apikey").value.trim();
-  if(!k){ alert("Enter API key"); return; }
-  localStorage.setItem("finnhub_key", k);
-  alert("API key saved");
-});
-$("scanBtn").addEventListener("click", runScan);
-$("cb-light").addEventListener("change", (e)=>{
-  if(e.target.checked){ document.documentElement.classList.add("light"); localStorage.setItem("ps_light","1"); }
-  else { document.documentElement.classList.remove("light"); localStorage.removeItem("ps_light"); }
-});
+function statusFromText(text){
+  if(!text) return "WATCH";
+  text=text.toLowerCase();
+  if(text.includes("surge")||text.includes("record")||text.includes("beats")) return "HOT";
+  if(text.includes("rise")||text.includes("gain")) return "WARM";
+  return "WATCH";
+}
 
-/* ---------- Main scan flow ---------- */
 async function runScan(){
+  $("results").innerHTML="Scanning...";
   const key = $("apikey").value.trim();
-  if(!key){ alert("Please paste your Finnhub API key and Save Key."); return; }
+  if(!key) return alert("Enter API key");
 
   const session = getSession();
-  setSmall(`Session: ${session} — fetching...`);
-  const minVol = parseInt($("minvol").value)||0;
+  $("session").innerText = "Session: "+session+" | fetching news...";
 
-  // Choose symbol list based on checkboxes
-  const prOnly = $("cb-pr").checked;
-  const topG = $("cb-gainers").checked;
-  let symbols = DEFAULT_SYMBOLS.slice();
-
-  if(prOnly) symbols = PR_SYMBOLS.slice();
-  else if(topG) symbols = GAINERS_SYMBOLS.slice();
-
-  // If market OPEN -> do stock scan else -> show news
-  if(session === "OPEN"){
-    await scanStocks(symbols, key, minVol);
-  } else {
-    await showNews(key);
-  }
-  setSmall(`Session: ${session} — done`);
-}
-
-/* ---------- Stock scanning ---------- */
-async function scanStocks(symbols, key, minVol){
-  const resultsEl = $("results");
-  resultsEl.innerHTML = "<div class='card'>Scanning prices...</div>";
-  const prefetch = $("cb-prefetch").checked;
-
-  // If prefetch: fetch quote for each concurrently
-  let quotes = {};
-  if(prefetch){
-    try{
-      const fetches = symbols.map(s => fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${key}`).then(r=>r.json().then(j=>({s,j}))).catch(()=>({s,null})));
-      const res = await Promise.all(fetches);
-      res.forEach(r=>{ quotes[r.s] = r.j; });
-    }catch(e){
-      console.warn("prefetch failed",e);
-    }
-  }
-
-  // Filter and display: consider penny threshold price < 10 AND vol >= minVol
-  let filtered = [];
-  for(const s of symbols){
-    let q = quotes[s];
-    if(!q) {
-      // if not prefetched, fetch on demand
-      try{
-        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${key}`);
-        q = await r.json();
-      }catch(e){ q = null; }
-    }
-    if(!q || typeof q.c !== "number") continue;
-    const price = q.c;
-    const vol = q.v || q.t || 0;
-    if(price < 10 && vol >= minVol) filtered.push({s,price,vol});
-  }
-
-  if(filtered.length === 0){
-    $("results").innerHTML = "<div class='card'>No penny stocks found (price < $10 + volume filter).</div>";
-    return;
-  }
-
-  // Render
-  let html = "";
-  filtered.forEach(it=>{
-    html += `<div class="card">
-      <strong>${it.s} $${(it.price||0).toFixed(2)}</strong><br>
-      Vol: ${it.vol.toLocaleString()}<br>
-      <a class="link" href="https://www.tradingview.com/symbols/${encodeURIComponent(it.s)}/" target="_blank">Chart</a>
-    </div>`;
-  });
-  $("results").innerHTML = html;
-}
-
-/* ---------- News fallback ---------- */
-async function showNews(key){
-  const resultsEl = $("results");
-  resultsEl.innerHTML = "<div class='card'>Fetching news...</div>";
   try{
-    const r = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
-    if(!r.ok){
-      const txt = await r.text();
-      resultsEl.innerHTML = `<div class='card'>News fetch failed (${r.status})<pre style="color:#f88">${txt}</pre></div>`;
-      return;
-    }
-    const data = await r.json();
-    if(!Array.isArray(data) || data.length===0){
-      resultsEl.innerHTML = "<div class='card'>No news items returned.</div>";
-      return;
-    }
+    const res = await fetch(API_URL+key);
+    if(!res.ok) throw new Error("API error");
+    const data = await res.json();
 
-    let html = "";
+    let out="";
     data.slice(0,10).forEach(n=>{
-      html += `<div class="card">
-        <b>NEWS</b><br>
-        ${n.headline || n.summary || "No headline"}<br>
-        <small class="small">${n.source || ""} · ${new Date((n.datetime||0)*1000).toLocaleString()}</small><br>
-        <a class="link" href="${n.url}" target="_blank">Read article</a>
+      const status = statusFromText(n.headline);
+      const cls = status=="HOT"?"hot":status=="WARM"?"warm":"watch";
+      out+=`
+      <div class="card ${cls}">
+        <b>${n.headline}</b><br>
+        ${n.summary||""}<br>
+        Status: <b>${status}</b><br>
+        <a href="${n.url}" target="_blank">📊 Article</a>
       </div>`;
     });
-    resultsEl.innerHTML = html;
+
+    $("results").innerHTML = out || "No news found";
+    $("session").innerText = "Session: "+session+" | Live Finnhub";
+
   }catch(err){
-    resultsEl.innerHTML = `<div class='card'>News error: ${err.message}</div>`;
+    $("results").innerHTML="<b>API ERROR</b><br>"+err.message;
+    $("session").innerText="Session: "+getSession()+" | API failed";
   }
 }
 
-/* ---------- On load: show session and load saved keys ---------- */
-(function init(){
-  loadSaved();
-  const s = getSession();
-  setSmall(`Session: ${s}`);
-})();
+});
 </script>
+
 </body>
 </html>
