@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v27.5</title>
+<title>Penny Scanner PRO v28</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{
@@ -11,34 +11,39 @@
 .light{
   --bg:#f3f4f6; --card:#ffffff; --text:#020617; --accent:#2563eb;
 }
-body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);text-align:center;margin:0;padding:10px}
-input,button{padding:10px;border-radius:8px;border:none;margin:5px}
+body{font-family:Arial;background:var(--bg);color:var(--text);margin:0;padding:10px;text-align:center}
+button,input{padding:10px;border-radius:8px;border:none;margin:5px}
 button{background:var(--accent);color:white;font-weight:bold}
 .card{background:var(--card);margin:10px;padding:12px;border-radius:12px;text-align:left}
 .hot{border-left:5px solid #22c55e}
 .warm{border-left:5px solid orange}
 .watch{border-left:5px solid #38bdf8}
-#leader{color:#22c55e;font-size:18px}
-#progress{color:#60a5fa}
-small{opacity:.7}
+#errorLog{color:#f87171;font-size:12px}
 .settings{background:var(--card);padding:10px;border-radius:12px;margin-bottom:10px}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v27.5</h1>
+<h1>📈 Penny Scanner PRO v28</h1>
 
 <button onclick="toggleSettings()">⚙️ Settings</button>
 <div id="settings" class="settings" style="display:none">
 
 <input id="finnhubKey" placeholder="Finnhub API Key"/><br>
-<button onclick="saveKey()">Save Key</button><br>
 
-<input id="minVol" type="number" value="5000"/><br>
+<label>Min Volume</label><br>
+<input id="minVol" type="number"/><br>
+
+<label>Max Float (millions)</label><br>
+<input id="maxFloat" type="number"/><br>
+
+<label>Max Market Cap (millions)</label><br>
+<input id="maxCap" type="number"/><br>
 
 <label><input type="checkbox" id="autoScan"> Auto Scan</label><br>
 <label><input type="checkbox" id="lightMode"> Light Mode</label><br>
 
+<button onclick="saveSettings()">Save Settings</button>
 </div>
 
 <button onclick="scan()">Scan Now</button>
@@ -50,8 +55,11 @@ small{opacity:.7}
 <h3>🏆 Leaderboard</h3>
 <div id="leaderboard"></div>
 
-<h3>📜 Signal History</h3>
+<h3>📜 History</h3>
 <div id="history"></div>
+
+<h3>⚠️ Errors</h3>
+<div id="errorLog"></div>
 
 <hr>
 <div id="results"></div>
@@ -61,49 +69,54 @@ small{opacity:.7}
 </audio>
 
 <script>
-let FINNHUB_KEY=localStorage.getItem("FINNHUB_KEY")||"";
-let history=[], leaderboard={}, cooldown={}, autoTimer=null;
-let batchIndex=parseInt(localStorage.getItem("batchIndex")||"0");
-
-const TIMEOUT=5000;
 const BATCHES=[
 ["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI"],
 ["PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY"],
 ["AKTS","MARA","RIOT","PLUG","SNDL","BB","SPCE","NIO","LCID","RIVN"]
 ];
 
-finnhubKey.value=FINNHUB_KEY;
+let batchIndex=parseInt(localStorage.getItem("batchIndex")||"0");
+let history=[], leaderboard={}, cooldown={}, errors=[];
+let autoTimer=null;
+
+const TIMEOUT=5000;
+
+// load settings
+finnhubKey.value=localStorage.getItem("FINNHUB_KEY")||"";
+minVol.value=localStorage.getItem("MINVOL")||5000;
+maxFloat.value=localStorage.getItem("MAXFLOAT")||"";
+maxCap.value=localStorage.getItem("MAXCAP")||"";
+
 lightMode.checked=localStorage.getItem("LIGHT")==="1";
 if(lightMode.checked) document.body.classList.add("light");
 
+autoScan.checked=localStorage.getItem("AUTO")==="1";
+if(autoScan.checked) startAuto();
+
 function toggleSettings(){
-  settings.style.display = settings.style.display==="none"?"block":"none";
+  settings.style.display=settings.style.display==="none"?"block":"none";
 }
 
-function saveKey(){
-  FINNHUB_KEY=finnhubKey.value.trim();
-  localStorage.setItem("FINNHUB_KEY",FINNHUB_KEY);
-  alert("API key saved");
+function saveSettings(){
+  localStorage.setItem("FINNHUB_KEY",finnhubKey.value.trim());
+  localStorage.setItem("MINVOL",minVol.value);
+  localStorage.setItem("MAXFLOAT",maxFloat.value);
+  localStorage.setItem("MAXCAP",maxCap.value);
+  localStorage.setItem("AUTO",autoScan.checked?"1":"0");
+  localStorage.setItem("LIGHT",lightMode.checked?"1":"0");
+  alert("Saved");
 }
 
-lightMode.onchange=()=>{
-  if(lightMode.checked){
-    document.body.classList.add("light");
-    localStorage.setItem("LIGHT","1");
-  }else{
-    document.body.classList.remove("light");
-    localStorage.removeItem("LIGHT");
-  }
-};
+lightMode.onchange=()=>document.body.classList.toggle("light");
 
 autoScan.onchange=()=>{
-  if(autoScan.checked){
-    autoTimer=setInterval(scan,60000);
-    Notification.requestPermission();
-  }else{
-    clearInterval(autoTimer);
-  }
+  if(autoScan.checked){startAuto();Notification.requestPermission();}
+  else clearInterval(autoTimer);
 };
+
+function startAuto(){
+  autoTimer=setInterval(scan,60000);
+}
 
 function getSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
@@ -122,11 +135,10 @@ function dailyReset(){
   }
 }
 
-function score(dp,vol,pmh){
+function score(dp,vol){
   let s=0;
   if(dp>5)s+=30; else if(dp>2)s+=15;
   if(vol>50000)s+=20;
-  if(pmh)s+=25;
   return s;
 }
 
@@ -139,82 +151,88 @@ function timeoutFetch(url){
 
 async function scan(){
   dailyReset();
+  const key=localStorage.getItem("FINNHUB_KEY");
+  if(!key){alert("Enter Finnhub API key");return;}
+
   const session=getSession();
   sessionEl.innerText="Session: "+session;
-  progress.innerText="Starting scan...";
+  progress.innerText="Scanning...";
   results.innerHTML="";
   leader.innerText="";
-
-  if(!FINNHUB_KEY){alert("Enter Finnhub API key");return;}
+  errorLog.innerHTML="";
+  errors=[];
 
   let symbols=BATCHES[batchIndex];
   batchIndex=(batchIndex+1)%BATCHES.length;
   localStorage.setItem("batchIndex",batchIndex);
 
-  let html="", best=null, done=0;
+  let html="",best=null,done=0;
 
   for(const sym of symbols){
     try{
-      progress.innerText=`Scanning ${++done}/${symbols.length}...`;
-      const d=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`);
-
+      progress.innerText=`Scanning ${++done}/${symbols.length}`;
+      const d=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
       if(!d.c||d.c>10||d.v<minVol.value) continue;
 
-      const pmh=d.dp>5;
-      const q=score(d.dp,d.v,pmh);
-
+      const q=score(d.dp,d.v);
       let status="WATCH";
-      if(q>=70) status="HOT";
-      else if(q>=50) status="WARM";
+      if(q>=50)status="WARM";
+      if(q>=70)status="HOT";
 
       if(status==="HOT"&&!cooldown[sym]){
         alertSound.play();
         if(Notification.permission==="granted"){
-          new Notification("🔥 HOT Stock",{
-            body:`${sym} ${d.dp.toFixed(2)}%`
-          });
+          new Notification("🔥 HOT", {body:`${sym} ${d.dp.toFixed(2)}%`});
         }
         cooldown[sym]=Date.now();
       }
 
       leaderboard[sym]=Math.max(leaderboard[sym]||0,q);
-      history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${q}`);
+      history.unshift(`${new Date().toLocaleTimeString()} ${sym} ${q}`);
       history=history.slice(0,20);
 
       if(!best||d.dp>best.dp) best={sym,dp:d.dp};
 
       html+=`
       <div class="card ${status.toLowerCase()}">
-        <b>${sym} $${d.c.toFixed(2)}</b><br>
-        Vol:${d.v} Change:${d.dp}%<br>
-        PMH:${pmh} Score:${q} Status:${status}<br>
-        <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
+      <b>${sym} $${d.c.toFixed(2)}</b><br>
+      Vol:${d.v} Change:${d.dp}% Score:${q}<br>
+      <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
       </div>`;
-    }catch(e){}
+    }catch(e){
+      errors.push(sym+" failed");
+    }
   }
 
   if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
+
   renderHistory();
   renderLeaderboard();
+  renderErrors();
+
   progress.innerText="Scan complete";
-  results.innerHTML=html||"No penny stocks found in this batch";
+  results.innerHTML=html||"No penny stocks in this batch";
 }
 
 function renderHistory(){
-  historyEl.innerHTML=history.map(x=>`<div class="card watch">${x}</div>`).join("")||"No signals yet";
+  historyEl.innerHTML=history.map(x=>`<div class="card watch">${x}</div>`).join("")||"No history yet";
 }
 function renderLeaderboard(){
   leaderboardEl.innerHTML=Object.entries(leaderboard)
     .sort((a,b)=>b[1]-a[1]).slice(0,5)
     .map(x=>`<div class="card warm">${x[0]} — ${x[1]}</div>`).join("")||"No leaders yet";
 }
+function renderErrors(){
+  errorLog.innerHTML=errors.join("<br>")||"No errors";
+}
 
 const sessionEl=document.getElementById("session");
+const progress=document.getElementById("progress");
 const results=document.getElementById("results");
 const historyEl=document.getElementById("history");
 const leaderboardEl=document.getElementById("leaderboard");
 const leader=document.getElementById("leader");
-const progress=document.getElementById("progress");
+const errorLog=document.getElementById("errorLog");
 const alertSound=document.getElementById("alertSound");
 </script>
 
