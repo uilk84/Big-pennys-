@@ -2,109 +2,55 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v23</title>
+<title>Penny Scanner PRO v24</title>
 <style>
 body {
-  margin:0;
   font-family: Arial, sans-serif;
-  background: linear-gradient(180deg,#050b1a,#02040a);
+  background:#020617;
   color:white;
   text-align:center;
 }
-h1 {margin-top:20px;}
 input,button {
   padding:10px;
   border-radius:8px;
   border:none;
   margin:5px;
 }
-button {
-  background:#3b82f6;
-  color:white;
-  font-weight:bold;
-}
+button {background:#3b82f6;color:white;font-weight:bold;}
 .card {
-  background:#0b1225;
+  background:#0f172a;
   margin:10px;
   padding:12px;
   border-radius:12px;
   text-align:left;
-  box-shadow:0 0 10px rgba(0,0,0,.4);
 }
-.hot {border-left:5px solid #00ff9c;}
+.hot {border-left:5px solid #22c55e;}
 .warm {border-left:5px solid orange;}
-.watch {border-left:5px solid #60a5fa;}
-.star {float:right; font-size:20px; cursor:pointer;}
-#favorites {margin-top:10px;}
+.watch {border-left:5px solid #38bdf8;}
 small {opacity:.7;}
 </style>
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v23</h1>
+<h1>📈 Penny Scanner PRO v24</h1>
 
-<input id="apiKey" placeholder="Enter Finnhub API Key"/>
+<input id="apiKey" placeholder="Finnhub API Key"/>
 <button onclick="saveKey()">Save Key</button><br>
 
-<input id="minVol" type="number" value="100000"/>
+<input id="minVol" type="number" value="10000"/>
 <button onclick="scan()">Scan Now</button>
-<button onclick="toggleAuto()">Auto Scan</button><br>
-
-<label><input type="checkbox" id="topGainers"> Top Gainers</label>
-<label><input type="checkbox" id="prOnly"> PR Only</label>
 
 <p id="session"></p>
-
-<h3>⭐ Favorites</h3>
-<div id="favorites"></div>
-
-<hr>
 <div id="results"></div>
 
 <script>
 let API_KEY = localStorage.getItem("FINNHUB_KEY") || "";
-let favorites = JSON.parse(localStorage.getItem("FAVORITES") || "[]");
-let autoTimer = null;
-
 document.getElementById("apiKey").value = API_KEY;
 
 function saveKey(){
   API_KEY = document.getElementById("apiKey").value.trim();
   localStorage.setItem("FINNHUB_KEY",API_KEY);
-  alert("API Key Saved");
-}
-
-function toggleAuto(){
-  if(autoTimer){
-    clearInterval(autoTimer);
-    autoTimer=null;
-    alert("Auto Scan OFF");
-  } else {
-    autoTimer=setInterval(scan,60000);
-    alert("Auto Scan ON (every 60s)");
-  }
-}
-
-function saveFavorites(){
-  localStorage.setItem("FAVORITES", JSON.stringify(favorites));
-  renderFavorites();
-}
-
-function toggleFavorite(sym){
-  if(favorites.includes(sym)){
-    favorites = favorites.filter(s=>s!==sym);
-  } else {
-    favorites.push(sym);
-  }
-  saveFavorites();
-}
-
-function renderFavorites(){
-  let html="";
-  favorites.forEach(sym=>{
-    html+=`<div class="card watch">⭐ ${sym}</div>`;
-  });
-  document.getElementById("favorites").innerHTML = html || "No favorites yet";
+  alert("API key saved");
 }
 
 function getSession(){
@@ -120,7 +66,7 @@ function getSession(){
 async function scan(){
   const session = getSession();
   document.getElementById("session").innerText = "Session: " + session;
-  document.getElementById("results").innerHTML = "Scanning...";
+  document.getElementById("results").innerHTML = "Scanning market...";
 
   if(!API_KEY){
     alert("Enter API key");
@@ -130,45 +76,46 @@ async function scan(){
   if(session==="CLOSED"){
     fetchNews();
   } else {
-    fetchStocks();
+    fetchMarketStocks();
   }
 }
 
-async function fetchStocks(){
+async function fetchMarketStocks(){
   const minVol = parseInt(document.getElementById("minVol").value);
-  const symbols = ["AAPL","TSLA","NVDA","AMD","AMC","GME","SOFI","PLTR","MARA","RIOT","F","T","NIO","LCID","RIVN","SPCE","BB","DKNG"];
-  let html="";
-  let count=0;
+  const symRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${API_KEY}`);
+  const symbols = await symRes.json();
 
-  for(let sym of symbols){
+  let html="";
+  let found=0;
+
+  // scan first 200 symbols to avoid rate limits
+  for(let i=0;i<symbols.length && i<200;i++){
+    const sym = symbols[i].symbol;
     try{
-      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
-      const data = await r.json();
+      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
+      const data = await q.json();
       if(!data.c) continue;
 
-      if(data.c<=10 && data.v>=minVol){
+      if(data.c <= 10 && data.v >= minVol){
         let status="WATCH";
-        if(data.dp>5) status="HOT";
-        else if(data.dp>2) status="WARM";
-
-        const star = favorites.includes(sym) ? "⭐" : "☆";
+        if(data.dp > 5) status="HOT";
+        else if(data.dp > 2) status="WARM";
 
         html+=`
         <div class="card ${status.toLowerCase()}">
-          <span class="star" onclick="toggleFavorite('${sym}')">${star}</span>
           <b>${sym} $${data.c.toFixed(2)}</b><br>
           Vol: ${data.v}<br>
           Change: ${data.dp}%<br>
           Status: ${status}<br>
           <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
         </div>`;
-        count++;
+        found++;
       }
-    }catch(e){}
+    } catch(e){}
   }
 
-  if(count===0){
-    document.getElementById("results").innerHTML="No penny stocks found";
+  if(found===0){
+    document.getElementById("results").innerHTML="No penny stocks found in first 200 symbols";
   } else {
     document.getElementById("results").innerHTML=html;
   }
@@ -189,8 +136,6 @@ async function fetchNews(){
   });
   document.getElementById("results").innerHTML=html;
 }
-
-renderFavorites();
 </script>
 
 </body>
