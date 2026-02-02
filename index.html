@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v29</title>
+<title>Penny Scanner PRO v30</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{
@@ -25,7 +25,7 @@ small{opacity:.7}
 </head>
 <body>
 
-<h1>📈 Penny Scanner PRO v29</h1>
+<h1>📈 Penny Scanner PRO v30</h1>
 
 <button onclick="toggleSettings()">⚙️ Settings</button>
 <div id="settings" class="settings" style="display:none">
@@ -41,6 +41,14 @@ small{opacity:.7}
 
 <label>Min Volume</label><br>
 <input id="minVol" type="number" value="5000"/><br>
+
+<label>Session Filter</label><br>
+<select id="sessionFilter">
+  <option value="ALL">All</option>
+  <option value="PRE">Pre-Market</option>
+  <option value="OPEN">Market Open</option>
+  <option value="AFTER">After Hours</option>
+</select><br>
 
 <label><input type="checkbox" id="autoScan"> Auto Scan</label><br>
 <label><input type="checkbox" id="lightMode"> Light Mode</label><br>
@@ -85,13 +93,13 @@ const SYMBOL_UNIVERSE=[
 let universeIndex=parseInt(localStorage.getItem("universeIndex")||"0");
 let history=[], leaderboard={}, cooldown={}, errors=[], resultsData=[];
 let autoTimer=null;
-
 const TIMEOUT=5000;
 
-// Load settings
+// load settings
 finnhubKey.value=localStorage.getItem("FINNHUB_KEY")||"";
 minVol.value=localStorage.getItem("MINVOL")||5000;
 pricePreset.value=localStorage.getItem("PRICE")||10;
+sessionFilter.value=localStorage.getItem("SESSION")||"ALL";
 
 lightMode.checked=localStorage.getItem("LIGHT")==="1";
 if(lightMode.checked) document.body.classList.add("light");
@@ -107,6 +115,7 @@ function saveSettings(){
   localStorage.setItem("FINNHUB_KEY",finnhubKey.value.trim());
   localStorage.setItem("MINVOL",minVol.value);
   localStorage.setItem("PRICE",pricePreset.value);
+  localStorage.setItem("SESSION",sessionFilter.value);
   localStorage.setItem("AUTO",autoScan.checked?"1":"0");
   localStorage.setItem("LIGHT",lightMode.checked?"1":"0");
   alert("Saved");
@@ -126,9 +135,9 @@ function startAuto(){
 function getSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t=d.getHours()*60+d.getMinutes();
-  if(t>=240&&t<570) return "PRE-MARKET";
+  if(t>=240&&t<570) return "PRE";
   if(t>=570&&t<960) return "OPEN";
-  if(t>=960&&t<1200) return "AFTER-HOURS";
+  if(t>=960&&t<1200) return "AFTER";
   return "CLOSED";
 }
 
@@ -140,12 +149,24 @@ function dailyReset(){
   }
 }
 
-function score(dp,vol,pmh,news){
+function calcRSI(closes){
+  let gains=0, losses=0;
+  for(let i=1;i<closes.length;i++){
+    let diff=closes[i]-closes[i-1];
+    if(diff>0) gains+=diff;
+    else losses-=diff;
+  }
+  let rs = gains/(losses||1);
+  return 100-(100/(1+rs));
+}
+
+function score(dp,vol,pmh,news,rsi){
   let s=0;
   if(dp>5)s+=30; else if(dp>2)s+=15;
   if(vol>50000)s+=20;
-  if(pmh)s+=25;
-  if(news)s+=25;
+  if(pmh)s+=20;
+  if(news)s+=20;
+  if(rsi>60 && rsi<80) s+=10;
   return s;
 }
 
@@ -171,8 +192,13 @@ async function scan(){
   newsPanel.innerHTML="";
   errors=[];
 
-  const batch=SYMBOL_UNIVERSE.slice(universeIndex, universeIndex+15);
-  universeIndex=(universeIndex+15)%SYMBOL_UNIVERSE.length;
+  if(sessionFilter.value!=="ALL" && sessionFilter.value!==session){
+    progress.innerText="Session filtered out";
+    return;
+  }
+
+  const batch=SYMBOL_UNIVERSE.slice(universeIndex, universeIndex+12);
+  universeIndex=(universeIndex+12)%SYMBOL_UNIVERSE.length;
   localStorage.setItem("universeIndex",universeIndex);
 
   let best=null, html="", done=0;
@@ -180,15 +206,20 @@ async function scan(){
   for(const sym of batch){
     try{
       progress.innerText=`Scanning ${++done}/${batch.length}`;
-      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+
+      const quote=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+      const candles=await timeoutFetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&count=15&token=${key}`);
       const news=await timeoutFetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=2024-01-01&to=2026-12-31&token=${key}`);
 
       const maxPrice=parseFloat(pricePreset.value);
-      if(!q.c||q.c>maxPrice||q.v<minVol.value) continue;
+      if(!quote.c||quote.c>maxPrice||quote.v<minVol.value) continue;
 
-      const pmh=q.dp>5;
+      const closes=candles.c||[];
+      const rsi=closes.length>=2?calcRSI(closes):50;
+      const pmh=quote.dp>5;
       const hasNews=news.length>0;
-      const sc=score(q.dp,q.v,pmh,hasNews);
+
+      const sc=score(quote.dp,quote.v,pmh,hasNews,rsi);
 
       let status="WATCH";
       if(sc>=70)status="HOT";
@@ -197,7 +228,7 @@ async function scan(){
       if(status==="HOT"&&!cooldown[sym]){
         alertSound.play();
         if(Notification.permission==="granted"){
-          new Notification("🔥 HOT", {body:`${sym} ${q.dp.toFixed(2)}%`});
+          new Notification("🔥 HOT", {body:`${sym} ${quote.dp.toFixed(2)}% RSI:${rsi.toFixed(1)}`});
         }
         cooldown[sym]=Date.now();
       }
@@ -210,15 +241,16 @@ async function scan(){
         newsPanel.innerHTML+=`<div class="card watch"><b>${sym}</b>: ${news[0].headline}</div>`;
       }
 
-      if(!best||q.dp>best.dp) best={sym,dp:q.dp};
+      if(!best||quote.dp>best.dp) best={sym,dp:quote.dp};
 
-      resultsData.push({sym,price:q.c,change:q.dp,vol:q.v,score:sc});
+      resultsData.push({sym,price:quote.c,change:quote.dp,vol:quote.v,score:sc,rsi:rsi});
 
       html+=`
       <div class="card ${status.toLowerCase()}">
-        <b>${sym} $${q.c.toFixed(2)}</b><br>
-        Vol:${q.v} Change:${q.dp}% Score:${sc}<br>
-        PMH:${pmh} News:${hasNews}<br>
+        <b>${sym} $${quote.c.toFixed(2)}</b><br>
+        Change:${quote.dp}% Vol:${quote.v}<br>
+        RSI:${rsi.toFixed(1)} PMH:${pmh} News:${hasNews}<br>
+        Score:${sc} (${dpBreakdown(quote.dp,quote.v,pmh,hasNews,rsi)})<br>
         <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
       </div>`;
     }catch(e){
@@ -236,11 +268,21 @@ async function scan(){
   results.innerHTML=html||"No penny stocks in this batch";
 }
 
+function dpBreakdown(dp,vol,pmh,news,rsi){
+  let parts=[];
+  if(dp>2) parts.push("Momentum");
+  if(vol>50000) parts.push("Volume");
+  if(pmh) parts.push("PMH");
+  if(news) parts.push("News");
+  if(rsi>60&&rsi<80) parts.push("RSI");
+  return parts.join(", ");
+}
+
 function exportCSV(){
   if(resultsData.length===0){alert("No data to export");return;}
-  let csv="Symbol,Price,Change%,Volume,Score\n";
+  let csv="Symbol,Price,Change%,Volume,RSI,Score\n";
   resultsData.forEach(r=>{
-    csv+=`${r.sym},${r.price},${r.change},${r.vol},${r.score}\n`;
+    csv+=`${r.sym},${r.price},${r.change},${r.vol},${r.rsi.toFixed(1)},${r.score}\n`;
   });
   const blob=new Blob([csv],{type:"text/csv"});
   const url=URL.createObjectURL(blob);
