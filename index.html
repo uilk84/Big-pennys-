@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v35</title>
+<title>Penny Scanner PRO v38</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -12,18 +12,15 @@ button{background:#3b82f6;color:white;font-weight:bold}
 .hot{border-left:5px solid #22c55e}
 .warm{border-left:5px solid orange}
 .watch{border-left:5px solid #38bdf8}
-.volHigh{color:#f87171}
-.volMed{color:#fb923c}
-.volLow{color:#60a5fa}
-#progressText{color:#60a5fa}
 progress{width:90%;height:18px}
-.toggle{font-size:14px}
+#progressText{color:#60a5fa}
 small{opacity:.7}
+.slider{width:120px}
 </style>
 </head>
 <body>
 
-<h2>📈 Penny Scanner PRO v35</h2>
+<h2>🏆 Penny Scanner PRO v38</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -36,20 +33,35 @@ small{opacity:.7}
 <input id="minVol" type="number" value="5000"><br>
 
 <select id="feedMode">
-<option value="news">📰 News Catalysts</option>
-<option value="gainers">📈 Movers / Gainers</option>
+<option value="news">📰 News Mode</option>
+<option value="movers">📈 Movers Mode</option>
+</select>
+
+<select id="sessionFilter">
+<option value="ALL">All Sessions</option>
+<option value="PRE">Pre-Market</option>
+<option value="OPEN">Market Open</option>
+<option value="AFTER">After Hours</option>
 </select><br>
 
-<label class="toggle">
-<input type="checkbox" id="autoScan"> ⏱ Auto Scan (1 min)
+<h4>Quality Score Weights</h4>
+Momentum <input class="slider" type="range" min="0" max="50" id="wMomentum" value="30"><br>
+Volume <input class="slider" type="range" min="0" max="50" id="wVolume" value="20"><br>
+PMH <input class="slider" type="range" min="0" max="50" id="wPMH" value="30"><br>
+
+<label>
+<input type="checkbox" id="soundToggle" checked> 🔔 Sound Alerts
 </label><br>
 
-<label class="toggle">
-<input type="checkbox" id="soundToggle" checked> 🔔 Sound Alerts
+<label>
+Auto Scan every 
+<input id="autoMinutes" type="number" value="2" style="width:60px"> min
+<input type="checkbox" id="autoScan">
 </label><br>
 
 <button onclick="saveSettings()">Save Settings</button>
 <button onclick="scan()">Scan Now</button>
+<button onclick="exportCSV()">Export CSV</button>
 
 <p id="session"></p>
 <progress id="progressBar" value="0" max="100"></progress>
@@ -58,6 +70,9 @@ small{opacity:.7}
 
 <h3>Results</h3>
 <div id="results"></div>
+
+<h3>🏆 Leaderboard</h3>
+<div id="leaderboard"></div>
 
 <h3>History</h3>
 <div id="history"></div>
@@ -74,15 +89,23 @@ const FALLBACK_SYMBOLS=[
 ];
 
 let history=[];
+let leaderboardData={};
 let cooldown={};
 let autoTimer=null;
+let pmhTracker={};
+let resultsData=[];
 
 apiKey.value=localStorage.getItem("APIKEY")||"";
 pricePreset.value=localStorage.getItem("PRICE")||10;
 minVol.value=localStorage.getItem("MINVOL")||5000;
+feedMode.value=localStorage.getItem("FEED")||"news";
+sessionFilter.value=localStorage.getItem("SESSION")||"ALL";
 soundToggle.checked = localStorage.getItem("SOUND")!=="0";
-feedMode.value = localStorage.getItem("FEED")||"news";
+autoMinutes.value = localStorage.getItem("AUTOMIN")||2;
 autoScan.checked = localStorage.getItem("AUTO")==="1";
+wMomentum.value = localStorage.getItem("WMOM")||30;
+wVolume.value = localStorage.getItem("WVOL")||20;
+wPMH.value = localStorage.getItem("WPMH")||30;
 
 if(autoScan.checked) startAuto();
 
@@ -90,9 +113,14 @@ function saveSettings(){
   localStorage.setItem("APIKEY",apiKey.value);
   localStorage.setItem("PRICE",pricePreset.value);
   localStorage.setItem("MINVOL",minVol.value);
-  localStorage.setItem("SOUND",soundToggle.checked?"1":"0");
   localStorage.setItem("FEED",feedMode.value);
+  localStorage.setItem("SESSION",sessionFilter.value);
+  localStorage.setItem("SOUND",soundToggle.checked?"1":"0");
+  localStorage.setItem("AUTOMIN",autoMinutes.value);
   localStorage.setItem("AUTO",autoScan.checked?"1":"0");
+  localStorage.setItem("WMOM",wMomentum.value);
+  localStorage.setItem("WVOL",wVolume.value);
+  localStorage.setItem("WPMH",wPMH.value);
   alert("Saved");
 }
 
@@ -102,7 +130,8 @@ autoScan.onchange=()=>{
 };
 
 function startAuto(){
-  autoTimer=setInterval(scan,60000);
+  clearInterval(autoTimer);
+  autoTimer=setInterval(scan, parseInt(autoMinutes.value)*60000);
 }
 
 function dailyReset(){
@@ -110,15 +139,17 @@ function dailyReset(){
   if(localStorage.getItem("DAY")!==today){
     localStorage.setItem("DAY",today);
     history=[];
+    leaderboardData={};
+    pmhTracker={};
   }
 }
 
 function getSession(){
   const d=new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
   const t=d.getHours()*60+d.getMinutes();
-  if(t>=240&&t<570) return "PRE-MARKET";
+  if(t>=240&&t<570) return "PRE";
   if(t>=570&&t<960) return "OPEN";
-  if(t>=960&&t<1200) return "AFTER-HOURS";
+  if(t>=960&&t<1200) return "AFTER";
   return "CLOSED";
 }
 
@@ -129,35 +160,18 @@ function timeoutFetch(url,ms=4000){
   ]);
 }
 
-function calcRSI(arr){
-  if(!arr||arr.length<2) return 50;
-  let gains=0,losses=0;
-  for(let i=1;i<arr.length;i++){
-    let d=arr[i]-arr[i-1];
-    if(d>0) gains+=d; else losses-=d;
-  }
-  let rs=gains/(losses||1);
-  return 100-(100/(1+rs));
-}
-
-function volumeClass(v){
-  if(v>200000) return "volHigh";
-  if(v>50000) return "volMed";
-  return "volLow";
-}
-
 async function getSymbols(key){
   let symbols=[];
   if(feedMode.value==="news"){
     try{
       const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
-      news.slice(0,15).forEach(n=>{
+      news.slice(0,12).forEach(n=>{
         if(n.related) symbols.push(n.related.split(",")[0]);
       });
     }catch(e){}
   }
   if(symbols.length===0){
-    symbols=[...FALLBACK_SYMBOLS];
+    symbols=[...FALLBACK_SYMBOLS].slice(0,12);
   }
   return symbols;
 }
@@ -165,20 +179,25 @@ async function getSymbols(key){
 async function scan(){
   dailyReset();
   results.innerHTML="";
-  leader.innerText="";
   historyEl.innerHTML="";
+  leaderboardEl.innerHTML="";
+  leader.innerText="";
   progressText.innerText="Starting scan...";
   progressBar.value=0;
+  resultsData=[];
 
   const key=apiKey.value.trim();
   if(!key){alert("Enter API key");return;}
 
-  Notification.requestPermission();
-
   const session=getSession();
   sessionEl.innerText="Session: "+session;
 
-  const symbols=await getSymbols(key);
+  if(sessionFilter.value!=="ALL" && sessionFilter.value!==session){
+    progressText.innerText="Session filtered out";
+    return;
+  }
+
+  const symbols = await getSymbols(key);
 
   let best=null;
   let html="";
@@ -194,46 +213,38 @@ async function scan(){
       if(!q||!q.c) continue;
       if(q.c>pricePreset.value || q.v<minVol.value) continue;
 
-      let rsi=50;
-      try{
-        const c=await timeoutFetch(`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&count=14&token=${key}`);
-        rsi=calcRSI(c.c);
-      }catch(e){}
-
-      const pmh=q.dp>5;
+      if(!pmhTracker[sym]) pmhTracker[sym]=q.c;
+      pmhTracker[sym]=Math.max(pmhTracker[sym], q.c);
+      const pmhBreak = q.c >= pmhTracker[sym];
 
       let breakdown=[];
       let score=0;
-      if(q.dp>3){score+=30; breakdown.push("Momentum");}
-      if(q.v>50000){score+=20; breakdown.push("Volume");}
-      if(pmh){score+=30; breakdown.push("PMH");}
-      if(rsi>60&&rsi<80){score+=20; breakdown.push("RSI");}
+
+      if(q.dp>3){score+=parseInt(wMomentum.value); breakdown.push("Momentum");}
+      if(q.v>50000){score+=parseInt(wVolume.value); breakdown.push("Volume");}
+      if(pmhBreak){score+=parseInt(wPMH.value); breakdown.push("PMH Break");}
 
       let status="watch";
       if(score>=70) status="hot";
       else if(score>=50) status="warm";
 
       if(status==="hot" && !cooldown[sym]){
-        if(soundToggle.checked){
-          alertSound.play();
-        }
-        if(Notification.permission==="granted"){
-          new Notification("🔥 HOT STOCK",{body:`${sym} ${q.dp.toFixed(2)}%`});
-        }
+        if(soundToggle.checked) alertSound.play();
         cooldown[sym]=Date.now();
       }
 
+      leaderboardData[sym] = Math.max(leaderboardData[sym]||0, score);
       history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${score}`);
       history=history.slice(0,20);
 
       if(!best || q.dp>best.dp) best={sym,dp:q.dp};
 
+      resultsData.push({sym,price:q.c,change:q.dp,vol:q.v,score});
+
       html+=`
       <div class="card ${status}">
         <b>${sym} $${q.c.toFixed(2)}</b><br>
-        Change:${q.dp}% 
-        <span class="${volumeClass(q.v)}">Vol:${q.v}</span><br>
-        RSI:${rsi.toFixed(1)} PMH:${pmh}<br>
+        Change:${q.dp}% Vol:${q.v}<br>
         Score:${score}<br>
         <small>${breakdown.join(", ")}</small><br>
         <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
@@ -242,9 +253,28 @@ async function scan(){
   }
 
   if(best) leader.innerText="🔥 Leader: "+best.sym+" ("+best.dp.toFixed(2)+"%)";
+
   results.innerHTML=html || "No penny stocks found";
   historyEl.innerHTML=history.map(x=>`<div class="card">${x}</div>`).join("");
+
+  leaderboardEl.innerHTML = Object.entries(leaderboardData)
+    .sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(x=>`<div class="card warm">${x[0]} — ${x[1]}</div>`).join("");
+
   progressText.innerText="Scan complete";
+}
+
+function exportCSV(){
+  if(resultsData.length===0){alert("No data to export");return;}
+  let csv="Symbol,Price,Change,Volume,Score\n";
+  resultsData.forEach(r=>{
+    csv+=`${r.sym},${r.price},${r.change},${r.vol},${r.score}\n`;
+  });
+  const blob=new Blob([csv],{type:"text/csv"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="scanner_results.csv";
+  a.click();
 }
 
 const sessionEl=document.getElementById("session");
@@ -253,6 +283,7 @@ const historyEl=document.getElementById("history");
 const leader=document.getElementById("leader");
 const progressText=document.getElementById("progressText");
 const progressBar=document.getElementById("progressBar");
+const leaderboardEl=document.getElementById("leaderboard");
 </script>
 
 </body>
