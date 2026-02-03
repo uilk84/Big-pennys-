@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v38</title>
+<title>Penny Scanner PRO v39</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -20,7 +20,7 @@ small{opacity:.7}
 </head>
 <body>
 
-<h2>🏆 Penny Scanner PRO v38</h2>
+<h2>🏆 Penny Scanner PRO v39 (Multi-Source)</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -32,11 +32,6 @@ small{opacity:.7}
 
 <input id="minVol" type="number" value="5000"><br>
 
-<select id="feedMode">
-<option value="news">📰 News Mode</option>
-<option value="movers">📈 Movers Mode</option>
-</select>
-
 <select id="sessionFilter">
 <option value="ALL">All Sessions</option>
 <option value="PRE">Pre-Market</option>
@@ -47,15 +42,13 @@ small{opacity:.7}
 <h4>Quality Score Weights</h4>
 Momentum <input class="slider" type="range" min="0" max="50" id="wMomentum" value="30"><br>
 Volume <input class="slider" type="range" min="0" max="50" id="wVolume" value="20"><br>
-PMH <input class="slider" type="range" min="0" max="50" id="wPMH" value="30"><br>
+PMH Break <input class="slider" type="range" min="0" max="50" id="wPMH" value="30"><br>
 
-<label>
-<input type="checkbox" id="soundToggle" checked> 🔔 Sound Alerts
-</label><br>
+<label><input type="checkbox" id="soundToggle" checked> 🔔 Sound Alerts</label><br>
 
 <label>
 Auto Scan every 
-<input id="autoMinutes" type="number" value="2" style="width:60px"> min
+<input id="autoMinutes" type="number" value="3" style="width:60px"> min
 <input type="checkbox" id="autoScan">
 </label><br>
 
@@ -82,10 +75,11 @@ Auto Scan every
 </audio>
 
 <script>
-const FALLBACK_SYMBOLS=[
+const MOVERS_LIST=[
 "SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI",
 "PBLA","SINT","CRKN","GFAI","NUWE","AGRI","CXAI","BTTR","BBAI","LUCY",
-"AMC","GME","BBIG","ATER","CTRM","CEI","MCOM","XELA","IDEX"
+"AMC","GME","BBIG","ATER","CTRM","CEI","MCOM","XELA","IDEX","HUSA",
+"SPI","KAVL","TTOO","CVNA","HKD","MEGL"
 ];
 
 let history=[];
@@ -98,10 +92,9 @@ let resultsData=[];
 apiKey.value=localStorage.getItem("APIKEY")||"";
 pricePreset.value=localStorage.getItem("PRICE")||10;
 minVol.value=localStorage.getItem("MINVOL")||5000;
-feedMode.value=localStorage.getItem("FEED")||"news";
 sessionFilter.value=localStorage.getItem("SESSION")||"ALL";
 soundToggle.checked = localStorage.getItem("SOUND")!=="0";
-autoMinutes.value = localStorage.getItem("AUTOMIN")||2;
+autoMinutes.value = localStorage.getItem("AUTOMIN")||3;
 autoScan.checked = localStorage.getItem("AUTO")==="1";
 wMomentum.value = localStorage.getItem("WMOM")||30;
 wVolume.value = localStorage.getItem("WVOL")||20;
@@ -113,7 +106,6 @@ function saveSettings(){
   localStorage.setItem("APIKEY",apiKey.value);
   localStorage.setItem("PRICE",pricePreset.value);
   localStorage.setItem("MINVOL",minVol.value);
-  localStorage.setItem("FEED",feedMode.value);
   localStorage.setItem("SESSION",sessionFilter.value);
   localStorage.setItem("SOUND",soundToggle.checked?"1":"0");
   localStorage.setItem("AUTOMIN",autoMinutes.value);
@@ -160,20 +152,34 @@ function timeoutFetch(url,ms=4000){
   ]);
 }
 
+function shuffle(array){
+  for(let i=array.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [array[i],array[j]]=[array[j],array[i]];
+  }
+}
+
 async function getSymbols(key){
   let symbols=[];
-  if(feedMode.value==="news"){
-    try{
-      const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
-      news.slice(0,12).forEach(n=>{
-        if(n.related) symbols.push(n.related.split(",")[0]);
-      });
-    }catch(e){}
-  }
-  if(symbols.length===0){
-    symbols=[...FALLBACK_SYMBOLS].slice(0,12);
-  }
-  return symbols;
+
+  // News symbols
+  try{
+    const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
+    news.slice(0,10).forEach(n=>{
+      if(n.related) symbols.push(n.related.split(",")[0]);
+    });
+  }catch(e){}
+
+  // Movers list
+  symbols = symbols.concat(MOVERS_LIST);
+
+  // Remove duplicates
+  symbols = [...new Set(symbols)];
+
+  // Shuffle for rotation
+  shuffle(symbols);
+
+  return symbols.slice(0,15);
 }
 
 async function scan(){
