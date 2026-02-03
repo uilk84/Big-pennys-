@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v40</title>
+<title>Penny Scanner PRO v40.1</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -23,7 +23,7 @@ small{opacity:.8}
 </head>
 <body>
 
-<h2>🏆 Penny Scanner PRO v40</h2>
+<h2>🏆 Penny Scanner PRO v40.1 (Stable)</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -65,9 +65,9 @@ Auto Scan
 <p id="leader"></p>
 
 <div>
-  <span class="tab active" onclick="showTab('resultsTab')">Results</span>
-  <span class="tab" onclick="showTab('leaderTab')">Leaderboard</span>
-  <span class="tab" onclick="showTab('historyTab')">History</span>
+  <span class="tab active" onclick="showTab('resultsTab',this)">Results</span>
+  <span class="tab" onclick="showTab('leaderTab',this)">Leaderboard</span>
+  <span class="tab" onclick="showTab('historyTab',this)">History</span>
 </div>
 
 <div id="resultsTab"></div>
@@ -79,7 +79,7 @@ Auto Scan
 </audio>
 
 <script>
-const MOVERS_LIST=["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","JG","VVOS","PTPI","AMC","GME","ATER","CEI","TTOO","CVNA","HKD"];
+const MOVERS_LIST=["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","VVOS","PTPI","AMC","GME","ATER","CEI","TTOO","CVNA","HKD"];
 
 let history=[], leaderboardData={}, pmhTracker={}, cooldown={}, resultsData=[];
 let autoTimer=null;
@@ -111,9 +111,9 @@ localStorage.setItem("WPMH",wPMH.value);
 alert("Saved");
 }
 
-function showTab(id){
+function showTab(id,el){
 document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-event.target.classList.add("active");
+el.classList.add("active");
 resultsTab.classList.add("hidden");
 leaderTab.classList.add("hidden");
 historyTab.classList.add("hidden");
@@ -146,14 +146,6 @@ symbols=symbols.concat(MOVERS_LIST);
 return [...new Set(symbols)].slice(0,12);
 }
 
-async function getHeadline(sym,key){
-try{
-const news=await timeoutFetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=2024-01-01&to=2026-12-31&token=${key}`);
-if(news.length>0) return news[0].headline;
-}catch(e){}
-return "No headline";
-}
-
 async function scan(){
 resultsTab.innerHTML="";
 leaderTab.innerHTML="";
@@ -167,23 +159,36 @@ const key=apiKey.value.trim();
 if(!key){alert("Enter API key");return;}
 
 const session=getSession();
-session.innerText="Session: "+session;
+sessionEl.innerText="Session: "+session;
 
-if(sessionFilter.value!=="ALL" && sessionFilter.value!==session){progressText.innerText="Session filtered";return;}
+if(sessionFilter.value!=="ALL" && sessionFilter.value!==session){
+progressText.innerText="Session filtered";
+return;
+}
 
 const symbols=await getSymbols(key);
 let best=null, done=0, html="";
 
 for(let rawSym of symbols){
 const sym=rawSym.trim().toUpperCase();
+
+// HARD filter
 if(sym.endsWith("D")||sym.includes(".")||sym.length>5||!/^[A-Z]+$/.test(sym)) continue;
 
-done++; progressBar.value=Math.round(done/symbols.length*100);
+done++; 
+progressBar.value=Math.round(done/symbols.length*100);
 progressText.innerText=`Scanning ${sym}`;
 
 try{
+// SAFE exchange filter
+let exchangeOK=true;
+try{
 const profile=await timeoutFetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${sym}&token=${key}`);
-if(!["NASDAQ","NYSE","AMEX"].includes(profile.exchange)) continue;
+if(profile && profile.exchange){
+exchangeOK=["NASDAQ","NYSE","AMEX"].includes(profile.exchange);
+}
+}catch(e){exchangeOK=true;}
+if(!exchangeOK) continue;
 
 const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
 if(!q||!q.c||q.c>pricePreset.value||q.v<minVol.value) continue;
@@ -192,8 +197,6 @@ if(!pmhTracker[sym]) pmhTracker[sym]=q.c;
 pmhTracker[sym]=Math.max(pmhTracker[sym],q.c);
 const pmhBreak=q.c>=pmhTracker[sym];
 
-const volSpike=((q.v/minVol.value)*100).toFixed(0);
-
 let breakdown=[],score=0;
 if(q.dp>3){score+=+wMomentum.value;breakdown.push("Momentum");}
 if(q.v>50000){score+=+wVolume.value;breakdown.push("Volume");}
@@ -201,9 +204,10 @@ if(pmhBreak){score+=+wPMH.value;breakdown.push("PMH");}
 
 let status=score>=70?"hot":score>=50?"warm":"watch";
 
-const headline=await getHeadline(sym,key);
-
-if(status==="hot"&&!cooldown[sym]){ if(soundToggle.checked)alertSound.play(); cooldown[sym]=Date.now(); }
+if(status==="hot"&&!cooldown[sym]){
+if(soundToggle.checked)alertSound.play();
+cooldown[sym]=Date.now();
+}
 
 leaderboardData[sym]=Math.max(leaderboardData[sym]||0,score);
 history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${score}`);
@@ -216,10 +220,9 @@ resultsData.push({sym,price:q.c,change:q.dp,vol:q.v,score});
 html+=`
 <div class="card ${status}">
 <b>${sym} $${q.c.toFixed(2)}</b><br>
-Change:${q.dp}% Vol:${q.v} (${volSpike}% spike)<br>
+Change:${q.dp}% Vol:${q.v}<br>
 Score:${score}<br>
 <small>${breakdown.join(", ")}</small><br>
-📰 ${headline}<br>
 <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
 </div>`;
 }catch(e){}
@@ -242,6 +245,14 @@ a.href=URL.createObjectURL(blob);
 a.download="scanner_results.csv";
 a.click();
 }
+
+const sessionEl=document.getElementById("session");
+const resultsTab=document.getElementById("resultsTab");
+const leaderTab=document.getElementById("leaderTab");
+const historyTab=document.getElementById("historyTab");
+const leader=document.getElementById("leader");
+const progressText=document.getElementById("progressText");
+const progressBar=document.getElementById("progressBar");
 </script>
 
 </body>
