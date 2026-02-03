@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v40.1</title>
+<title>Penny Scanner PRO v40.2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -14,16 +14,16 @@ button{background:#3b82f6;color:white;font-weight:bold}
 .watch{border-left:5px solid #38bdf8}
 progress{width:90%;height:16px}
 #progressText{color:#60a5fa}
-.slider{width:120px}
 .tab{background:#1e293b;margin:5px;padding:8px;border-radius:8px;display:inline-block}
 .tab.active{background:#3b82f6}
-small{opacity:.8}
 .hidden{display:none}
+small{opacity:.8}
+.slider{width:120px}
 </style>
 </head>
 <body>
 
-<h2>🏆 Penny Scanner PRO v40.1 (Stable)</h2>
+<h2>🏆 Penny Scanner PRO v40.2 (Always Finds Stocks)</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -33,7 +33,7 @@ small{opacity:.8}
 <option value="10" selected>Under $10</option>
 </select>
 
-<input id="minVol" type="number" value="5000"><br>
+<input id="minVol" type="number" value="1000"><br>
 
 <select id="sessionFilter">
 <option value="ALL">All Sessions</option>
@@ -43,9 +43,9 @@ small{opacity:.8}
 </select><br>
 
 <h4>Quality Weights</h4>
-Momentum <input class="slider" type="range" min="0" max="50" id="wMomentum" value="30"><br>
-Volume <input class="slider" type="range" min="0" max="50" id="wVolume" value="20"><br>
-PMH <input class="slider" type="range" min="0" max="50" id="wPMH" value="30"><br>
+Momentum <input class="slider" type="range" min="0" max="50" id="wMomentum" value="20"><br>
+Volume <input class="slider" type="range" min="0" max="50" id="wVolume" value="15"><br>
+PMH <input class="slider" type="range" min="0" max="50" id="wPMH" value="20"><br>
 
 <label><input type="checkbox" id="soundToggle" checked> 🔔 Sound</label><br>
 
@@ -79,21 +79,24 @@ Auto Scan
 </audio>
 
 <script>
-const MOVERS_LIST=["SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","VVOS","PTPI","AMC","GME","ATER","CEI","TTOO","CVNA","HKD"];
+const MOVERS_LIST=[
+"SMFL","DRCT","TWG","GNS","MULN","NKLA","TOP","VVOS","PTPI",
+"AMC","GME","ATER","CEI","TTOO","CVNA","HKD","MARA","RIOT","SIRI","SOFI"
+];
 
 let history=[], leaderboardData={}, pmhTracker={}, cooldown={}, resultsData=[];
 let autoTimer=null;
 
 apiKey.value=localStorage.getItem("APIKEY")||"";
 pricePreset.value=localStorage.getItem("PRICE")||10;
-minVol.value=localStorage.getItem("MINVOL")||5000;
+minVol.value=localStorage.getItem("MINVOL")||1000;
 sessionFilter.value=localStorage.getItem("SESSION")||"ALL";
 soundToggle.checked=localStorage.getItem("SOUND")!=="0";
 autoMinutes.value=localStorage.getItem("AUTOMIN")||3;
 autoScan.checked=localStorage.getItem("AUTO")==="1";
-wMomentum.value=localStorage.getItem("WMOM")||30;
-wVolume.value=localStorage.getItem("WVOL")||20;
-wPMH.value=localStorage.getItem("WPMH")||30;
+wMomentum.value=localStorage.getItem("WMOM")||20;
+wVolume.value=localStorage.getItem("WVOL")||15;
+wPMH.value=localStorage.getItem("WPMH")||20;
 
 if(autoScan.checked) startAuto();
 
@@ -140,7 +143,9 @@ async function getSymbols(key){
 let symbols=[];
 try{
 const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
-news.slice(0,8).forEach(n=>{ if(n.related) symbols.push(n.related.split(",")[0]); });
+news.slice(0,8).forEach(n=>{
+if(n.related) symbols.push(n.related.split(",")[0]);
+});
 }catch(e){}
 symbols=symbols.concat(MOVERS_LIST);
 return [...new Set(symbols)].slice(0,12);
@@ -172,40 +177,31 @@ let best=null, done=0, html="";
 for(let rawSym of symbols){
 const sym=rawSym.trim().toUpperCase();
 
-// HARD filter
-if(sym.endsWith("D")||sym.includes(".")||sym.length>5||!/^[A-Z]+$/.test(sym)) continue;
+// HARD symbol filter only
+if(sym.endsWith("D")||sym.includes(".")||sym.length>5||!/^[A-Z]{1,5}$/.test(sym)) continue;
 
-done++; 
+done++;
 progressBar.value=Math.round(done/symbols.length*100);
 progressText.innerText=`Scanning ${sym}`;
 
 try{
-// SAFE exchange filter
-let exchangeOK=true;
-try{
-const profile=await timeoutFetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${sym}&token=${key}`);
-if(profile && profile.exchange){
-exchangeOK=["NASDAQ","NYSE","AMEX"].includes(profile.exchange);
-}
-}catch(e){exchangeOK=true;}
-if(!exchangeOK) continue;
-
 const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
-if(!q||!q.c||q.c>pricePreset.value||q.v<minVol.value) continue;
+if(!q||!q.c) continue;
+if(q.c>pricePreset.value || q.v<minVol.value) continue;
 
 if(!pmhTracker[sym]) pmhTracker[sym]=q.c;
 pmhTracker[sym]=Math.max(pmhTracker[sym],q.c);
 const pmhBreak=q.c>=pmhTracker[sym];
 
 let breakdown=[],score=0;
-if(q.dp>3){score+=+wMomentum.value;breakdown.push("Momentum");}
-if(q.v>50000){score+=+wVolume.value;breakdown.push("Volume");}
+if(q.dp>2){score+=+wMomentum.value;breakdown.push("Momentum");}
+if(q.v>10000){score+=+wVolume.value;breakdown.push("Volume");}
 if(pmhBreak){score+=+wPMH.value;breakdown.push("PMH");}
 
-let status=score>=70?"hot":score>=50?"warm":"watch";
+let status=score>=60?"hot":score>=40?"warm":"watch";
 
 if(status==="hot"&&!cooldown[sym]){
-if(soundToggle.checked)alertSound.play();
+if(soundToggle.checked) alertSound.play();
 cooldown[sym]=Date.now();
 }
 
