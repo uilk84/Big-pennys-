@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Penny Scanner PRO v39.1</title>
+<title>Penny Scanner PRO v39.2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{font-family:Arial;background:#020617;color:white;text-align:center;padding:10px}
@@ -20,7 +20,7 @@ small{opacity:.7}
 </head>
 <body>
 
-<h2>🏆 Penny Scanner PRO v39.1 (Tradable Only)</h2>
+<h2>🏆 Penny Scanner PRO v39.2 (No D / OTC Stocks)</h2>
 
 <input id="apiKey" placeholder="Finnhub API Key"><br>
 
@@ -161,7 +161,6 @@ function shuffle(array){
 
 async function getSymbols(key){
   let symbols=[];
-
   try{
     const news=await timeoutFetch(`https://finnhub.io/api/v1/news?category=general&token=${key}`);
     news.slice(0,10).forEach(n=>{
@@ -172,7 +171,6 @@ async function getSymbols(key){
   symbols = symbols.concat(MOVERS_LIST);
   symbols = [...new Set(symbols)];
   shuffle(symbols);
-
   return symbols.slice(0,15);
 }
 
@@ -203,30 +201,33 @@ async function scan(){
   let html="";
   let done=0;
 
-  for(const sym of symbols){
+  for(let rawSym of symbols){
 
-    // 🚫 Filter OTC / D / invalid symbols
+    const cleanSym = rawSym.trim().toUpperCase();
+
+    // 🚫 HARD FILTER
     if(
-      sym.endsWith("D") ||
-      sym.includes(".") ||
-      sym.length > 5 ||
-      !/^[A-Z]+$/.test(sym)
+      cleanSym.endsWith("D") ||
+      cleanSym.includes(".") ||
+      cleanSym.length < 1 ||
+      cleanSym.length > 5 ||
+      !/^[A-Z]{1,5}$/.test(cleanSym)
     ){
       continue;
     }
 
     done++;
     progressBar.value = Math.round((done/symbols.length)*100);
-    progressText.innerText=`Scanning ${done}/${symbols.length}: ${sym}`;
+    progressText.innerText=`Scanning ${done}/${symbols.length}: ${cleanSym}`;
 
     try{
-      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${key}`);
+      const q=await timeoutFetch(`https://finnhub.io/api/v1/quote?symbol=${cleanSym}&token=${key}`);
       if(!q||!q.c) continue;
       if(q.c>pricePreset.value || q.v<minVol.value) continue;
 
-      if(!pmhTracker[sym]) pmhTracker[sym]=q.c;
-      pmhTracker[sym]=Math.max(pmhTracker[sym], q.c);
-      const pmhBreak = q.c >= pmhTracker[sym];
+      if(!pmhTracker[cleanSym]) pmhTracker[cleanSym]=q.c;
+      pmhTracker[cleanSym]=Math.max(pmhTracker[cleanSym], q.c);
+      const pmhBreak = q.c >= pmhTracker[cleanSym];
 
       let breakdown=[];
       let score=0;
@@ -239,26 +240,26 @@ async function scan(){
       if(score>=70) status="hot";
       else if(score>=50) status="warm";
 
-      if(status==="hot" && !cooldown[sym]){
+      if(status==="hot" && !cooldown[cleanSym]){
         if(soundToggle.checked) alertSound.play();
-        cooldown[sym]=Date.now();
+        cooldown[cleanSym]=Date.now();
       }
 
-      leaderboardData[sym] = Math.max(leaderboardData[sym]||0, score);
-      history.unshift(`${new Date().toLocaleTimeString()} ${sym} Score:${score}`);
+      leaderboardData[cleanSym] = Math.max(leaderboardData[cleanSym]||0, score);
+      history.unshift(`${new Date().toLocaleTimeString()} ${cleanSym} Score:${score}`);
       history=history.slice(0,20);
 
-      if(!best || q.dp>best.dp) best={sym,dp:q.dp};
+      if(!best || q.dp>best.dp) best={sym:cleanSym,dp:q.dp};
 
-      resultsData.push({sym,price:q.c,change:q.dp,vol:q.v,score});
+      resultsData.push({sym:cleanSym,price:q.c,change:q.dp,vol:q.v,score});
 
       html+=`
       <div class="card ${status}">
-        <b>${sym} $${q.c.toFixed(2)}</b><br>
+        <b>${cleanSym} $${q.c.toFixed(2)}</b><br>
         Change:${q.dp}% Vol:${q.v}<br>
         Score:${score}<br>
         <small>${breakdown.join(", ")}</small><br>
-        <a href="https://www.tradingview.com/chart/?symbol=${sym}" target="_blank">📊 Chart</a>
+        <a href="https://www.tradingview.com/chart/?symbol=${cleanSym}" target="_blank">📊 Chart</a>
       </div>`;
     }catch(e){}
   }
